@@ -69,22 +69,19 @@ class GalaxyBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents, help_command=None)
         self.pool: asyncpg.Pool | None = None
 
-        async def setup_hook(self) -> None:
+    async def setup_hook(self) -> None:
         # Initialize DB pool and schema
         self.pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=5)
         await self._init_db()
 
         if TEST_GUILD:
-            # Remove any existing global commands
-            self.tree.clear_commands(guild=None)
-            # Remove any existing test-guild commands
+            # Clear and sync only guild-specific commands
             self.tree.clear_commands(guild=TEST_GUILD)
-            # Register only guild-scoped commands
             self.tree.copy_global_to(guild=TEST_GUILD)
             await self.tree.sync(guild=TEST_GUILD)
-            print(f"❇ Cleared global & test-guild commands, re-synced to guild {TEST_GUILD.id}")
+            print(f"❇ Cleared & re-synced test commands to guild {TEST_GUILD.id}")
         else:
-            # Production: clear old globals then sync new globals
+            # Clear global commands and sync fresh
             self.tree.clear_commands(guild=None)
             await self.tree.sync()
             print("✅ Cleared & synced global commands (may take up to an hour)")
@@ -144,7 +141,7 @@ async def all_alliances() -> List[str]:
 async def get_members_with_colonies(alliance: str) -> List[Tuple[str, int, List[Tuple[int, int]]]]:
     query = """
         SELECT m.member,
-               COUNT(c.x)  AS ncol,
+               COUNT(c.x) AS ncol,
                COALESCE(array_agg(c.x || ',' || c.y ORDER BY c.x, c.y)
                         FILTER (WHERE c.x IS NOT NULL), '{}') AS coords
         FROM members m
