@@ -1,8 +1,7 @@
-
-\"\"\"
-Galaxy Life Alliance Tracker Bot – per-member colonies
+"""
+Galaxy Life Alliance Tracker Bot – per‑member colonies
 =====================================================
-A Discord *slash-command* bot for tracking enemy alliances in **Galaxy Life**.
+A Discord *slash‑command* bot for tracking enemy alliances in **Galaxy Life**.
 
 Data model
 ----------
@@ -12,18 +11,18 @@ Alliance → Members → each Member stores:
 
 Key slash commands
 ------------------
-/addalliance name  – create an alliance
+/addalliance name              – create an alliance
 /addmember alliance member main_planet  – add a member
-/addcolony alliance member x y  – add colony coords (max 11 per member)
-/show alliance  – embed of all members & colonies
-/list  – list alliances
-/reset alliance  – delete (admin-only)
+/addcolony alliance member x y – add colony coords (max 11 per member)
+/show alliance                 – embed of all members & colonies
+/list                          – list alliances
+/reset alliance                – delete (admin‑only)
 
 Dev hints
 ---------
-* Set **TEST_GUILD_ID** env-var to your server ID for instant command registration.
+* Set **TEST_GUILD_ID** env‑var to your server ID for instant command registration.
 * The bot token must be provided via the **DISCORD_BOT_TOKEN** environment variable.
-\"\"\"
+"""
 
 from __future__ import annotations
 
@@ -38,10 +37,10 @@ from discord.ext import commands
 DATA_FILE = "alliances.json"
 MAX_COLONIES = 11
 
+
 # ---------------------------------------------------------------------------
 # Persistence helpers
 # ---------------------------------------------------------------------------
-
 def load_data() -> Dict[str, Any]:
     if os.path.isfile(DATA_FILE):
         with open(DATA_FILE, "r", encoding="utf-8") as fp:
@@ -56,11 +55,12 @@ def save_data(data: Dict[str, Any]) -> None:
 
 alliances: Dict[str, Any] = load_data()
 
+
 # ---------------------------------------------------------------------------
 # Utility helpers
 # ---------------------------------------------------------------------------
-
-def key(name: str) -> str:  # normalise alliance / member keys
+def key(name: str) -> str:
+    """Normalize keys to lowercase for consistent dict lookups."""
     return name.lower()
 
 
@@ -80,17 +80,19 @@ def get_member(a: Dict[str, Any], member_name: str) -> Dict[str, Any]:
     return a["members"][mk]
 
 
-async def respond(interaction: discord.Interaction, msg: str, /, *, ephemeral: bool = True):
-    \"\"\"Reply helper that works whether the initial response is sent or not.\"\"\"
+async def respond(
+    interaction: discord.Interaction, msg: str, /, *, ephemeral: bool = True
+) -> None:
+    """Send a reply whether or not an initial response has been sent."""
     if interaction.response.is_done():
         await interaction.followup.send(msg, ephemeral=ephemeral)
     else:
         await interaction.response.send_message(msg, ephemeral=ephemeral)
 
+
 # ---------------------------------------------------------------------------
 # Autocomplete helpers
 # ---------------------------------------------------------------------------
-
 async def alliance_autocomplete(
     interaction: discord.Interaction, current: str
 ) -> List[app_commands.Choice[str]]:
@@ -119,11 +121,11 @@ def member_autocomplete_factory(param_alliance_name: str):
 
     return _ac
 
+
 # ---------------------------------------------------------------------------
 # Discord bot setup
 # ---------------------------------------------------------------------------
-
-intents = discord.Intents.default()  # message content not needed for slash cmds
+intents = discord.Intents.default()  # message_content not needed for slash cmds
 
 guild_id_env = os.getenv("TEST_GUILD_ID")
 TEST_GUILD = discord.Object(int(guild_id_env)) if guild_id_env else None
@@ -140,15 +142,15 @@ class GalaxyLifeBot(commands.Bot):
             print(f"✓ Commands synced to test guild {TEST_GUILD.id}")
         else:
             await self.tree.sync()
-            print("✓ Global slash-commands synced (may take up to 60 min first time)")
+            print("✓ Global slash‑commands synced (may take up to 60 min first time)")
 
 
 bot = GalaxyLifeBot()
 
+
 # ---------------------------------------------------------------------------
 # Slash commands
 # ---------------------------------------------------------------------------
-
 @bot.tree.command(description="Create a new alliance entry.")
 @app_commands.describe(name="Alliance name")
 async def addalliance(interaction: discord.Interaction, name: str):
@@ -177,7 +179,9 @@ async def addmember(
     a = get_alliance(alliance)
     mk = key(member)
     if mk in a["members"]:
-        await respond(interaction, f"**{member}** already exists in {a['display_name']}.")
+        await respond(
+            interaction, f"**{member}** already exists in {a['display_name']}."
+        )
         return
     a["members"][mk] = {
         "display_name": member,
@@ -209,13 +213,16 @@ async def addcolony(
     a = get_alliance(alliance)
     m = get_member(a, member)
     if len(m["colonies"]) >= MAX_COLONIES:
-        await respond(interaction, f"{m['display_name']} already has {MAX_COLONIES} colonies saved.")
+        await respond(
+            interaction,
+            f"{m['display_name']} already has {MAX_COLONIES} colonies saved.",
+        )
         return
-    m["colonies"].append({\"x\": x, \"y\": y})
+    m["colonies"].append({"x": x, "y": y})
     save_data(alliances)
     await respond(
         interaction,
-        f\"Colony `{x},{y}` added for **{m['display_name']}** ({len(m['colonies'])}/{MAX_COLONIES}).\",
+        f"Colony `{x},{y}` added for **{m['display_name']}** ({len(m['colonies'])}/{MAX_COLONIES}).",
     )
 
 
@@ -225,12 +232,12 @@ async def show(interaction: discord.Interaction, alliance: str):
     a = get_alliance(alliance)
     embed = discord.Embed(title=a["display_name"], color=discord.Color.blue())
     if not a["members"]:
-        embed.description = \"_(no members saved yet)_\"
+        embed.description = "_(no members saved yet)_"
     else:
         for m in a["members"].values():
-            colonies = ", ".join(f\"`{c['x']},{c['y']}`\" for c in m["colonies"]) or "None"
+            colonies = ", ".join(f"`{c['x']},{c['y']}`" for c in m["colonies"]) or "None"
             embed.add_field(
-                name=f\"{m['display_name']} – {m['main_planet']} ({len(m['colonies'])}/{MAX_COLONIES})\",
+                name=f"{m['display_name']} – {m['main_planet']} ({len(m['colonies'])}/{MAX_COLONIES})",
                 value=colonies,
                 inline=False,
             )
@@ -242,29 +249,36 @@ async def list(interaction: discord.Interaction):
     if not alliances:
         await respond(interaction, "No alliances recorded yet.")
         return
-    msg = "\\n".join(f\"- {a['display_name']}\" for a in alliances.values())
-    await interaction.response.send_message(f\"**All Alliances ({len(alliances)})**\\n{msg}\", ephemeral=False)
+    msg = "\n".join(f"- {a['display_name']}" for a in alliances.values())
+    await interaction.response.send_message(
+        f"**All Alliances ({len(alliances)})**\n{msg}", ephemeral=False
+    )
 
 
-@bot.tree.command(description="Delete an alliance (admin-only).")
+@bot.tree.command(description="Delete an alliance (admin‑only).")
 @app_commands.checks.has_permissions(administrator=True)
 @app_commands.autocomplete(alliance=alliance_autocomplete)
 async def reset(interaction: discord.Interaction, alliance: str):
     k = key(alliance)
     if k not in alliances:
-        await respond(interaction, f\"Alliance **{alliance}** not found.\")
+        await respond(interaction, f"Alliance **{alliance}** not found.")
         return
     del alliances[k]
     save_data(alliances)
-    await respond(interaction, f\"Alliance **{alliance}** has been removed.\")
+    await respond(interaction, f"Alliance **{alliance}** has been removed.")
 
 
-@reset.error  # noqa: WPS437
-async def reset_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+@reset.error
+async def reset_error(
+    interaction: discord.Interaction, error: app_commands.AppCommandError
+):
     if isinstance(error, app_commands.errors.MissingPermissions):
-        await respond(interaction, "You need **Administrator** permission to do that.")
+        await respond(
+            interaction, "You need **Administrator** permission to do that."
+        )
     else:
         raise error
+
 
 # ---------------------------------------------------------------------------
 # Run the bot
