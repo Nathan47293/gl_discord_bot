@@ -60,20 +60,26 @@ class GalaxyBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents, help_command=None)
         self.pool: asyncpg.Pool | None = None
 
-    async def setup_hook(self) -> None:
+        async def setup_hook(self) -> None:
         # Initialize DB pool and schema
         self.pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=5)
         await self._init_db()
 
         if TEST_GUILD:
-            # Sync only in test guild (no global registrations)
+            # Remove all global commands so only guild commands exist
+            self.tree.clear_commands(guild=None)
+            # Remove any stale commands in the test guild
             self.tree.clear_commands(guild=TEST_GUILD)
+            # Copy our code-defined commands into the test guild only
             self.tree.copy_global_to(guild=TEST_GUILD)
+            # Sync test guild, deploying only guild commands
             await self.tree.sync(guild=TEST_GUILD)
-            print(f"❇ Synced commands to test guild {TEST_GUILD.id}")
+            print(f"❇ Synced commands to test guild only: {TEST_GUILD.id}")
         else:
-            # No global sync performed in production
-            print("Running in production: no guild-specific sync configured.")
+            # In production, clear any global commands (we don't use them)
+            self.tree.clear_commands(guild=None)
+            # No further sync; commands are guild-only
+            print("✅ Cleared all global commands; running with guild-only commands.")
 
     async def _init_db(self) -> None:
         assert self.pool is not None
