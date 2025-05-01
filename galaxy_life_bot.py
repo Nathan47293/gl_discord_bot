@@ -57,40 +57,35 @@ class GalaxyBot(commands.Bot):
         # open pool & init schema
         self.pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=5)
         async with self.pool.acquire() as conn:
-                     await self.pool.execute("""
-         CREATE TABLE IF NOT EXISTS alliances (
-           name TEXT PRIMARY KEY
-         );
-         CREATE TABLE IF NOT EXISTS members (
-           alliance TEXT REFERENCES alliances(name) ON DELETE CASCADE,
-           member   TEXT,
-           main_sb  INT,
-           PRIMARY KEY(alliance, member)
-         );
-         CREATE TABLE IF NOT EXISTS settings (
-           guild_id TEXT PRIMARY KEY,
-           alliance TEXT REFERENCES alliances(name) ON DELETE CASCADE
-         );
--        DROP TABLE IF EXISTS colonies;
--        CREATE TABLE colonies (
-+        -- don’t drop existing colonies, just create it if missing
-+        CREATE TABLE IF NOT EXISTS colonies (
-           id        SERIAL PRIMARY KEY,
-           alliance  TEXT NOT NULL REFERENCES alliances(name) ON DELETE CASCADE,
-           member    TEXT NOT NULL,
-           starbase  INT NOT NULL,
-           x         INT NOT NULL,
-           y         INT NOT NULL,
-           FOREIGN KEY(alliance, member)
-             REFERENCES members(alliance, member)
-             ON DELETE CASCADE
-         );
-         """)
-
+            await conn.execute("""
+            CREATE TABLE IF NOT EXISTS alliances (
+              name TEXT PRIMARY KEY
+            );
+            CREATE TABLE IF NOT EXISTS members (
+              alliance TEXT REFERENCES alliances(name) ON DELETE CASCADE,
+              member   TEXT,
+              main_sb  INT,
+              PRIMARY KEY(alliance, member)
+            );
+            CREATE TABLE IF NOT EXISTS settings (
+              guild_id TEXT PRIMARY KEY,
+              alliance TEXT REFERENCES alliances(name) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS colonies (
+              id        SERIAL PRIMARY KEY,
+              alliance  TEXT NOT NULL REFERENCES alliances(name) ON DELETE CASCADE,
+              member    TEXT NOT NULL,
+              starbase  INT NOT NULL,
+              x         INT NOT NULL,
+              y         INT NOT NULL,
+              FOREIGN KEY(alliance, member)
+                REFERENCES members(alliance, member)
+                ON DELETE CASCADE
+            );
+            """)
 
         # register commands
         if TEST_GUILD:
-            # guild-only
             self.tree.clear_commands(guild=TEST_GUILD)
             self.tree.copy_global_to(guild=TEST_GUILD)
             await self.tree.sync(guild=TEST_GUILD)
