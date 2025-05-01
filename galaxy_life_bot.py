@@ -225,4 +225,4 @@ TOKEN = os.environ.get("DISCORD_BOT_TOKEN")
 if not TOKEN:
     raise RuntimeError("Set the DISCORD_BOT_TOKEN env var.")
 
-bot
+bot.run(TOKEN)
