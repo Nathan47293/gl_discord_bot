@@ -80,7 +80,7 @@ class GalaxyBot(commands.Bot):
             # Copy global definitions as-is to test guild
             self.tree.copy_global_to(guild=TEST_GUILD)
             await self.tree.sync(guild=TEST_GUILD)
-            print(f"❇ Cleared & re-synced test commands to guild {TEST_GUILD.id}")f"❇ Cleared & re-synced test commands to guild {TEST_GUILD.id}")
+            print(f"❇ Cleared & re-synced test commands to guild {TEST_GUILD.id}")
         else:
             # Wipe and re-sync global commands
             self.tree.clear_commands(guild=None)
