@@ -295,6 +295,83 @@ async def reset_error(inter: discord.Interaction, error: app_commands.AppCommand
     else:
         raise error
 
+@bot.tree.command(description="Remove a member (and all their colonies).")
+@app_commands.autocomplete(alliance=alliance_ac, member=member_ac_factory("alliance"))
+@app_commands.describe(alliance="Alliance name", member="Member name")
+async def removemember(inter: discord.Interaction, alliance: str, member: str):
+    if not await member_exists(alliance, member):
+        await inter.response.send_message("Member not found.", ephemeral=True)
+        return
+    # This cascades out their colonies thanks to our FK ON DELETE CASCADE
+    async with bot.pool.acquire() as conn:
+        await conn.execute(
+            "DELETE FROM members WHERE alliance=$1 AND member=$2",
+            alliance, member
+        )
+    await inter.response.send_message(
+        f"Member **{member}** removed from **{alliance}**.", ephemeral=True
+    )
+
+
+@bot.tree.command(description="Remove a specific colony from a member.")
+@app_commands.autocomplete(alliance=alliance_ac, member=member_ac_factory("alliance"))
+@app_commands.describe(alliance="Alliance", member="Member", x="X coord", y="Y coord")
+async def removecolony(
+    inter: discord.Interaction,
+    alliance: str,
+    member: str,
+    x: int,
+    y: int,
+):
+    if not await member_exists(alliance, member):
+        await inter.response.send_message("Member not found.", ephemeral=True)
+        return
+    async with bot.pool.acquire() as conn:
+        res = await conn.execute(
+            "DELETE FROM colonies WHERE alliance=$1 AND member=$2 AND x=$3 AND y=$4",
+            alliance, member, x, y
+        )
+    # res looks like 'DELETE 1' if it actually deleted something
+    if res.endswith("0"):
+        await inter.response.send_message("No such colony found.", ephemeral=True)
+    else:
+        await inter.response.send_message(
+            f"Colony `{x},{y}` removed for **{member}**.", ephemeral=True
+        )
+
+
+@bot.tree.command(description="Rename a member.")
+@app_commands.autocomplete(alliance=alliance_ac, member=member_ac_factory("alliance"))
+@app_commands.describe(alliance="Alliance", old="Current member name", new="New member name")
+async def renamemember(
+    inter: discord.Interaction,
+    alliance: str,
+    old: str,
+    new: str,
+):
+    if not await member_exists(alliance, old):
+        await inter.response.send_message("Original member not found.", ephemeral=True)
+        return
+    if await member_exists(alliance, new):
+        await inter.response.send_message("That new name is already in use.", ephemeral=True)
+        return
+
+    async with bot.pool.acquire() as conn:
+        # rename in members table
+        await conn.execute(
+            "UPDATE members SET member=$1 WHERE alliance=$2 AND member=$3",
+            new, alliance, old
+        )
+        # and also in colonies
+        await conn.execute(
+            "UPDATE colonies SET member=$1 WHERE alliance=$2 AND member=$3",
+            new, alliance, old
+        )
+
+    await inter.response.send_message(
+        f"Member **{old}** has been renamed to **{new}**.", ephemeral=True
+    )
+
 # ---------------------------------------------------------------------------
 # Run bot
 # ---------------------------------------------------------------------------
