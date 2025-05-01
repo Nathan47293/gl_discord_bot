@@ -2,8 +2,8 @@
 """
 Galaxy Life Alliance Tracker Bot — **PostgreSQL edition**
 ========================================================
-Persistent across every deploy **without volumes**. Data is stored in the
-free Railway **PostgreSQL** plugin; nothing writes to the container’s disk.
+Persistent across every deploy without volumes. Data is stored in the
+free Railway PostgreSQL plugin; nothing writes to the container’s disk.
 
 Key points
 ----------
@@ -69,7 +69,7 @@ class GalaxyBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents, help_command=None)
         self.pool: asyncpg.Pool | None = None
 
-            async def setup_hook(self) -> None:
+    async def setup_hook(self) -> None:
         # Initialize DB pool and schema
         self.pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=5)
         await self._init_db()
@@ -221,38 +221,29 @@ async def addcolony(inter: discord.Interaction, alliance: str, member: str, x: i
 @bot.tree.command(description="Show an alliance’s members & colonies.")
 @app_commands.autocomplete(alliance=alliance_ac)
 async def show(inter: discord.Interaction, alliance: str):
-    # Verify alliance exists
     if not await alliance_exists(alliance):
         return await inter.response.send_message("Alliance not found.", ephemeral=True)
 
     members = await get_members_with_colonies(alliance)
     total_members = len(members)
-
-    # Embed title shows member count / 50
     embed = discord.Embed(
         title=f"{alliance} ({total_members}/50 members)",
         color=discord.Color.blue()
     )
-
     if not members:
         embed.description = "No members recorded."
     else:
         for name, count, coords in members:
             coord_str = ", ".join(f"{x},{y}" for x, y in coords) or "None"
-            embed.add_field(
-                name=f"{name} ({count}/{MAX_COLONIES})",
-                value=coord_str,
-                inline=False
-            )
-
-    await inter.response.send_message(embed=embed, ephemeral=False)
+            embed.add_field(name=f"{name} ({count}/{MAX_COLONIES})", value=coord_str, inline=False)
+    await inter.response.send_message(embed=embed)
 
 @bot.tree.command(description="List all alliances.")
 async def list(inter: discord.Interaction):
     names = await all_alliances()
     if not names:
         return await inter.response.send_message("No alliances recorded.", ephemeral=True)
-    await inter.response.send_message("\n".join(f"- {n}" for n in names), ephemeral=False)
+    await inter.response.send_message("\n".join(f"- {n}" for n in names))
 
 @bot.tree.command(description="Delete an alliance (admin only)." )
 @app_commands.autocomplete(alliance=alliance_ac)
