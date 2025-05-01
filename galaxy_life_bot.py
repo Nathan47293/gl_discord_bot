@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Galaxy Life Alliance Tracker Bot — *colonies‑only*  (fixed copy_global_to)
 ======================================================================
