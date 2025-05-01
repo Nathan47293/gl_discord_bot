@@ -1,24 +1,24 @@
 # -*- coding: utf-8 -*-
 """
-Galaxy Life Alliance Tracker Bot — **PostgreSQL + Starbase edition**
-===================================================================
+Galaxy Life Alliance Tracker Bot — **PostgreSQL + Starbase edition (fields reordered)**
+=====================================================================================
 Persistent across every deploy **without volumes**. Data is stored in the
 free Railway **PostgreSQL** plugin; nothing writes to the container’s disk.
 
 Key points
 ----------
-* Now tracking three values per colony: X, Y, and Starbase level (1–9).
+* Tracking three values per colony: Starbase level, X, Y.
 * Tables auto-create and auto-migrate on startup.
 * Same slash-command API you already use.
 
-Add these to requirements.txt:
+Add to requirements.txt:
     discord.py>=2.3
     asyncpg>=0.29
 
-Env vars needed:
+Env vars:
     DISCORD_BOT_TOKEN – your bot token
     DATABASE_URL      – Railway Postgres plugin URL
-    TEST_GUILD_ID     – (optional) guild ID for instant slash-command sync
+    TEST_GUILD_ID     – optional guild ID for instant slash-command sync
 """
 
 import os
@@ -45,11 +45,11 @@ if not DATABASE_URL:
     raise RuntimeError("Set DATABASE_URL via your Postgres plugin.")
 
 TEST_GUILD: discord.Object | None = None
-if test_id := os.getenv("TEST_GUILD_ID"):
+if tg := os.getenv("TEST_GUILD_ID"):
     try:
-        TEST_GUILD = discord.Object(int(test_id))
+        TEST_GUILD = discord.Object(int(tg))
     except ValueError:
-        print("WARNING: TEST_GUILD_ID must be an integer ID; ignoring.")
+        print("WARNING: TEST_GUILD_ID must be an integer; ignoring.")
 
 # ---------------------------------------------------------------------------
 # Bot definition with asyncpg pool
@@ -62,18 +62,16 @@ class GalaxyBot(commands.Bot):
         self.pool: asyncpg.Pool | None = None
 
     async def setup_hook(self) -> None:
-        # 1) open DB pool
+        # 1) Open DB pool
         self.pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=5)
-        # 2) init or migrate schema
+        # 2) Init or migrate schema
         await self._init_db()
-
-        # 3) sync commands
+        # 3) Sync commands
         if TEST_GUILD:
             self.tree.clear_commands(guild=TEST_GUILD)
             self.tree.copy_global_to(guild=TEST_GUILD)
             await self.tree.sync(guild=TEST_GUILD)
             print(f"❇ Commands synced to test guild {TEST_GUILD.id}")
-            # also ensure global commands exist:
             await self.tree.sync()
             print("✅ Also synced globally")
         else:
@@ -83,7 +81,7 @@ class GalaxyBot(commands.Bot):
     async def _init_db(self) -> None:
         assert self.pool is not None
         async with self.pool.acquire() as conn:
-            # create tables if missing
+            # Create tables if they don't exist
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS alliances (
                     name TEXT PRIMARY KEY
@@ -94,18 +92,18 @@ class GalaxyBot(commands.Bot):
                     PRIMARY KEY(alliance, member)
                 );
                 CREATE TABLE IF NOT EXISTS colonies (
-                    alliance  TEXT,
-                    member    TEXT,
-                    x         INT,
-                    y         INT,
-                    starbase  INT,
-                    PRIMARY KEY(alliance, member, x, y),
+                    alliance TEXT,
+                    member   TEXT,
+                    x        INT,
+                    y        INT,
+                    starbase INT,
+                    PRIMARY KEY(alliance, member, x, y, starbase),
                     FOREIGN KEY(alliance, member)
                         REFERENCES members(alliance, member)
                         ON DELETE CASCADE
                 );
             """)
-            # migrate existing table (if you added starbase later)
+            # Migrate existing table to add starbase if missing
             await conn.execute("""
                 ALTER TABLE colonies
                 ADD COLUMN IF NOT EXISTS starbase INT;
@@ -145,16 +143,14 @@ async def all_alliances() -> List[str]:
 async def get_members_with_colonies(alliance: str) -> List[Tuple[str,int,List[Tuple[int,int,int]]]]:
     query = """
         SELECT m.member,
-               COUNT(c.x)      AS ncol,
+               COUNT(c.x) AS ncol,
                COALESCE(
-                 array_agg(c.x || ',' || c.y || ',' || c.starbase
-                   ORDER BY c.x, c.y, c.starbase)
-                 FILTER (WHERE c.x IS NOT NULL),
-                 '{}'
+                 array_agg(c.x||','||c.y||','||c.starbase ORDER BY c.x,c.y,c.starbase)
+                   FILTER (WHERE c.x IS NOT NULL), '{}'
                ) AS coords
         FROM members m
-             LEFT JOIN colonies c
-               ON c.alliance = m.alliance AND c.member = m.member
+        LEFT JOIN colonies c
+          ON c.alliance = m.alliance AND c.member = m.member
         WHERE m.alliance = $1
         GROUP BY m.member
         ORDER BY m.member;
@@ -164,8 +160,8 @@ async def get_members_with_colonies(alliance: str) -> List[Tuple[str,int,List[Tu
     out: List[Tuple[str,int,List[Tuple[int,int,int]]]] = []
     for r in rows:
         coords = []
-        for coord in r["coords"]:
-            x_s, y_s, sb_s = coord.split(",")
+        for s in r["coords"]:
+            x_s, y_s, sb_s = s.split(",")
             coords.append((int(x_s), int(y_s), int(sb_s)))
         out.append((r["member"], r["ncol"], coords))
     return out
@@ -205,7 +201,7 @@ def member_ac_factory(param_alliance: str):
 @app_commands.describe(name="Alliance name")
 async def addalliance(inter: discord.Interaction, name: str):
     if await alliance_exists(name):
-        return await inter.response.send_message("That alliance already exists.", ephemeral=True)
+        return await inter.response.send_message("Alliance already exists.", ephemeral=True)
     async with bot.pool.acquire() as conn:
         await conn.execute("INSERT INTO alliances(name) VALUES($1)", name)
     await inter.response.send_message(f"✅ Alliance **{name}** registered!", ephemeral=True)
@@ -225,22 +221,22 @@ async def addmember(inter: discord.Interaction, alliance: str, member: str):
         )
     await inter.response.send_message("✅ Member added.", ephemeral=True)
 
-@bot.tree.command(description="Add a colony with X, Y and starbase level (1–9).")
+@bot.tree.command(description="Add a colony: starbase level, X, Y.")
 @app_commands.autocomplete(alliance=alliance_ac, member=member_ac_factory("alliance"))
 @app_commands.describe(
     alliance="Alliance",
     member="Member",
+    sb="Starbase level (1–9)",
     x="X coordinate",
-    y="Y coordinate",
-    sb="Starbase level (1–9)"
+    y="Y coordinate"
 )
 async def addcolony(
     inter: discord.Interaction,
     alliance: str,
     member: str,
+    sb: int,
     x: int,
-    y: int,
-    sb: int
+    y: int
 ):
     if not await member_exists(alliance, member):
         return await inter.response.send_message("Member not found.", ephemeral=True)
@@ -254,7 +250,7 @@ async def addcolony(
             "INSERT INTO colonies(alliance, member, x, y, starbase) VALUES($1,$2,$3,$4,$5)",
             alliance, member, x, y, sb
         )
-    await inter.response.send_message(f"✅ Colony `{x},{y}` (SB{sb}) added.", ephemeral=True)
+    await inter.response.send_message(f"✅ Colony `SB{sb} @ {x},{y}` added.", ephemeral=True)
 
 @bot.tree.command(description="Show an alliance’s members & colonies.")
 @app_commands.autocomplete(alliance=alliance_ac)
@@ -262,7 +258,6 @@ async def show(inter: discord.Interaction, alliance: str):
     if not await alliance_exists(alliance):
         return await inter.response.send_message("Alliance not found.", ephemeral=True)
     data = await get_members_with_colonies(alliance)
-
     embed = discord.Embed(
         title=f"{alliance} ({len(data)}/50 members)",
         color=discord.Color.blue()
@@ -271,9 +266,8 @@ async def show(inter: discord.Interaction, alliance: str):
         embed.description = "No members recorded."
     else:
         for member, cnt, coords in data:
-            line = ", ".join(f"{x},{y} (SB{sb})" for x,y,sb in coords) or "None"
+            line = ", ".join(f"SB{sb}@{x},{y}" for x,y,sb in coords) or "None"
             embed.add_field(name=f"{member} ({cnt}/{MAX_COLONIES})", value=line, inline=False)
-
     await inter.response.send_message(embed=embed)
 
 @bot.tree.command(description="List all alliances.")
@@ -301,27 +295,27 @@ async def removemember(inter: discord.Interaction, alliance: str, member: str):
         await conn.execute("DELETE FROM members WHERE alliance=$1 AND member=$2", alliance, member)
     await inter.response.send_message(f"✅ Member **{member}** removed.", ephemeral=True)
 
-@bot.tree.command(description="Remove a single colony.")
+@bot.tree.command(description="Remove a single colony by SB, X, Y.")
 @app_commands.autocomplete(alliance=alliance_ac, member=member_ac_factory("alliance"))
-@app_commands.describe(alliance="Alliance", member="Member", x="X coord", y="Y coord", sb="Starbase level")
+@app_commands.describe(alliance="Alliance", member="Member", sb="Starbase level", x="X coord", y="Y coord")
 async def removecolony(
     inter: discord.Interaction,
     alliance: str,
     member: str,
+    sb: int,
     x: int,
-    y: int,
-    sb: int
+    y: int
 ):
     if not await member_exists(alliance, member):
         return await inter.response.send_message("Member not found.", ephemeral=True)
     async with bot.pool.acquire() as conn:
         res = await conn.execute(
-            "DELETE FROM colonies WHERE alliance=$1 AND member=$2 AND x=$3 AND y=$4 AND starbase=$5",
-            alliance, member, x, y, sb
+            "DELETE FROM colonies WHERE alliance=$1 AND member=$2 AND starbase=$3 AND x=$4 AND y=$5",
+            alliance, member, sb, x, y
         )
     if res.endswith("0"):
         return await inter.response.send_message("No matching colony found.", ephemeral=True)
-    await inter.response.send_message(f"✅ Colony `{x},{y}` (SB{sb}) removed.", ephemeral=True)
+    await inter.response.send_message(f"✅ Colony `SB{sb} @ {x},{y}` removed.", ephemeral=True)
 
 @bot.tree.command(description="Rename a member.")
 @app_commands.autocomplete(alliance=alliance_ac, old=member_ac_factory("alliance"))
@@ -334,7 +328,7 @@ async def renamemember(
     if not await member_exists(alliance, old):
         return await inter.response.send_message("Original member not found.", ephemeral=True)
     if await member_exists(alliance, new):
-        return await inter.response.send_message("That new name already exists.", ephemeral=True)
+        return await inter.response.send_message("New name already exists.", ephemeral=True)
     async with bot.pool.acquire() as conn:
         await conn.execute(
             "UPDATE members SET member=$1 WHERE alliance=$2 AND member=$3",
