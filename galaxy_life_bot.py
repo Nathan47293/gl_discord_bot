@@ -369,50 +369,78 @@ async def renamemember(
             )
     await inter.response.send_message(f"✅ Renamed **{old}** to **{new}**.", ephemeral=True)
 
-@bot.tree.command(
-    description="Attack an enemy alliance: show respawn timers."
-)
+@bot.tree.command(description="Start a war against an enemy alliance and show war stats.")
 @app_commands.autocomplete(target=alliance_ac)
-async def attack(
-    inter: discord.Interaction,
-    target: str
-):
-    # get our active alliance
+async def attack(inter: discord.Interaction, target: str):
     own = await get_active_alliance(str(inter.guild_id))
     if not own:
         return await inter.response.send_message(
             "❌ Please set your alliance first with /setalliance.", ephemeral=True
         )
+
     if not await alliance_exists(target):
         return await inter.response.send_message("❌ Enemy alliance not found.", ephemeral=True)
 
     async with bot.pool.acquire() as conn:
-        A = await conn.fetchval(
-            "SELECT COUNT(*) FROM members WHERE alliance=$1", own
-        )
-        E = await conn.fetchval(
-            "SELECT COUNT(*) FROM members WHERE alliance=$1", target
-        )
+        A = await conn.fetchval("SELECT COUNT(*) FROM members WHERE alliance=$1", own)
+        E = await conn.fetchval("SELECT COUNT(*) FROM members WHERE alliance=$1", target)
 
+        # Get starbase levels for WP calculations
+        def wp_from_sb(sb_level: int) -> int:
+            wp_map = {1: 100, 2: 200, 3: 300, 4: 400, 5: 600,
+                      6: 1000, 7: 1500, 8: 2000, 9: 2500}
+            return wp_map.get(sb_level, 0)
+
+        # Calculate WP for both alliances
+        async def total_wp(alliance: str) -> int:
+            rows = await conn.fetch(
+                "SELECT starbase FROM colonies WHERE alliance=$1", alliance
+            )
+            members_main_sb = await conn.fetch(
+                "SELECT main_sb FROM members WHERE alliance=$1", alliance
+            )
+            total = sum(wp_from_sb(r['starbase']) for r in rows)
+            total += sum(wp_from_sb(m['main_sb']) for m in members_main_sb)
+            return total
+
+        own_wp = await total_wp(target)  # WP gained by our alliance from attacking enemy
+        enemy_wp = await total_wp(own)   # WP gained by enemy from attacking our alliance
+
+    # Calculate respawn timers (swapped sides)
     ratio_enemy = max(E/A, 1)
     ratio_you   = max(A/E, 1)
     T_enemy = round(4 * ratio_enemy)
     T_you   = round(4 * ratio_you)
 
     embed = discord.Embed(
-        title=f"Attack: **{own}** vs **{target}**",
-        color=discord.Color.purple()
+        title=f"War! **{own}** vs **{target}**",
+        color=discord.Color.red()
     )
+
+    # Swapped cooldown texts
     embed.add_field(
-        name="🛡️ Our base respawn time",
-        value=f"{T_you} hours",
-        inline=True
-    )
-    embed.add_field(
-        name="⚔️ Enemy base respawn time",
+        name="⚔️ Attacking cooldown",
         value=f"{T_enemy} hours",
         inline=True
     )
+    embed.add_field(
+        name="🛡️ Defending cooldown",
+        value=f"{T_you} hours",
+        inline=True
+    )
+
+    # Warpoints fields
+    embed.add_field(
+        name="⭐ WP/Raid",
+        value=f"{own_wp:,}",
+        inline=True
+    )
+    embed.add_field(
+        name="★ Enemy WP/Raid",
+        value=f"{enemy_wp:,}",
+        inline=True
+    )
+
     await inter.response.send_message(embed=embed)
 
 # ────────────────────────────────────────────────────────────────────────────
