@@ -1,24 +1,24 @@
 """
-Galaxy Life Alliance Tracker Bot — *colonies‑only*
-=================================================
-A Discord *slash‑command* bot for tracking **enemy alliances** in Galaxy Life **without** storing a main planet.  
-Each member simply has **up to 11 colony coordinates**.
+Galaxy Life Alliance Tracker Bot — *colonies‑only*  (fixed copy_global_to)
+======================================================================
+Discord slash‑command bot that tracks enemy alliances in Galaxy Life.
 
-Slash commands
---------------
+* ➖  **No main planet field** — each member just has up to 11 colony coordinates.
+* 🛠️  **Bug‑fix**: switched `copy_global_to_guild()` → `copy_global_to()` for
+  Discord .py ≥ 2.3 (prevents AttributeError seen on Railway).
+
+Commands
+--------
 ```
 /addalliance name
 /addmember alliance member
 /addcolony alliance member x y
-/show alliance         – embed of every member & colonies
-/list                  – list alliances
-/reset alliance        – delete (admin only)
+/show alliance
+/list
+/reset alliance   (admin‑only)
 ```
 
-Setup (quick refresher)
-* Create bot → copy token → invite with `bot` + `applications.commands` scopes.
-* Put the token in the `DISCORD_BOT_TOKEN` env‑var (and optional `TEST_GUILD_ID`).
-* `python galaxy_life_bot.py` — that’s it.
+Set up exactly as before — just redeploy this file.
 
 ---
 ```python
@@ -58,7 +58,7 @@ alliances: Dict[str, Any] = load_data()
 # ---------------------------------------------------------------------------
 
 def key(name: str) -> str:
-    """Normalize a string to lowercase for dict keys."""
+    """Normalize to lower‑case so look‑ups are case‑insensitive."""
     return name.lower()
 
 
@@ -79,7 +79,6 @@ def get_member(a: Dict[str, Any], member_name: str) -> Dict[str, Any]:
 
 
 async def respond(interaction: discord.Interaction, msg: str, /, *, ep: bool = True):
-    """Smart responder that works before/after the initial reply."""
     if interaction.response.is_done():
         await interaction.followup.send(msg, ephemeral=ep)
     else:
@@ -119,24 +118,26 @@ def member_ac_factory(param_alliance: str):
 # ---------------------------------------------------------------------------
 # Discord bot setup
 # ---------------------------------------------------------------------------
-intents = discord.Intents.default()
+intents = discord.Intents.default()  # message_content not required
 
 guild_id_env = os.getenv("TEST_GUILD_ID")
 TEST_GUILD = discord.Object(int(guild_id_env)) if guild_id_env else None
 
 
 class GalaxyBot(commands.Bot):
-    def __init__(self) -> None:
+    def __init__(self):
         super().__init__(command_prefix="!", intents=intents, help_command=None)
 
-    async def setup_hook(self) -> None:
+    async def setup_hook(self):
+        # Fast guild‑only sync when TEST_GUILD_ID is set
         if TEST_GUILD:
-            self.tree.copy_global_to_guild(TEST_GUILD)
+            # >>> FIX: use copy_global_to instead of copy_global_to_guild <<<
+            self.tree.copy_global_to(guild=TEST_GUILD)
             await self.tree.sync(guild=TEST_GUILD)
             print(f"✓ Commands synced to test guild {TEST_GUILD.id}")
         else:
             await self.tree.sync()
-            print("✓ Global slash‑commands synced (can take up to 1 h on first run)")
+            print("✓ Global slash‑commands synced (first time can take up to 1 h)")
 
 
 bot = GalaxyBot()
@@ -159,9 +160,7 @@ async def addalliance(interaction: discord.Interaction, name: str):
 @bot.tree.command(description="Add a member to an alliance.")
 @app_commands.autocomplete(alliance=alliance_ac)
 @app_commands.describe(alliance="Alliance name", member="Member/player name")
-async def addmember(
-    interaction: discord.Interaction, alliance: str, member: str
-):
+async def addmember(interaction: discord.Interaction, alliance: str, member: str):
     a = get_alliance(alliance)
     mk = key(member)
     if mk in a["members"]:
@@ -172,7 +171,7 @@ async def addmember(
     await respond(interaction, f"Member **{member}** added to **{a['display_name']}**.")
 
 
-@bot.tree.command(description="Add a colony coordinate to a member (max 11 each).")
+@bot.tree.command(description="Add a colony (max 11 per member).")
 @app_commands.autocomplete(
     alliance=alliance_ac, member=member_ac_factory("alliance")
 )
