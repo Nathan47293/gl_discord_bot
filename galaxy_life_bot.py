@@ -26,8 +26,14 @@ from typing import Any, Dict, List
 import discord
 from discord import app_commands
 from discord.ext import commands
+import os, json
 
-DATA_FILE = "alliances.json"
+# NEW — let you override in Railway variables if you want
+DATA_DIR = os.getenv("DATA_DIR", "/data")      # /data is the mount path
+os.makedirs(DATA_DIR, exist_ok=True)           # ensure directory exists
+
+DATA_FILE = os.path.join(DATA_DIR, "alliances.json")
+
 MAX_COLONIES = 11
 
 # ---------------------------------------------------------------------------
