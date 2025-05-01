@@ -285,7 +285,6 @@ async def reset(inter: discord.Interaction, alliance: str):
         return
     async with bot.pool.acquire() as conn:  # type: ignore
         await conn.execute("DELETE FROM alliances WHERE name=$1", alliance)
-    await inter.response.send
     await inter.response.send_message("Alliance deleted.", ephemeral=True)
 
 @reset.error
