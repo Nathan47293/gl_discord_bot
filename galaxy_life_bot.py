@@ -1,10 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-Galaxy Life Alliance Tracker Bot — PostgreSQL edition with duplicate coords & colony summary
-==========================================================================================
-Auto-creates tables if missing (won’t drop your existing data), allows multiple
-colonies at the same (x,y) with starbase levels, shows total colonies discovered,
-and includes a working /list command.
+Galaxy Life Alliance Tracker Bot — PostgreSQL edition with delete-password protection
+===================================================================================
+Auto-creates tables if missing, supports duplicate coords with starbase levels,
+shows total colonies discovered, and requires a secret password to delete alliances.
 
 Requirements (requirements.txt):
     discord.py>=2.3
@@ -25,24 +24,28 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
 MAX_COLONIES = 11
 MAX_MEMBERS = 50
+DELETE_PASSWORD = "HAC#ER4LFElol567"
 
 # ---------------------------------------------------------------------------
 # Configuration checks
 # ---------------------------------------------------------------------------
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 if not TOKEN:
-    raise RuntimeError("Set the DISCORD_BOT_TOKEN env var.")
+    raise RuntimeError("Set DISCORD_BOT_TOKEN env var.")
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
-    raise RuntimeError("Set the DATABASE_URL env var (Postgres plugin).")
+    raise RuntimeError("Set DATABASE_URL env var.")
 
 TEST_GUILD: discord.Object | None = None
-if TEST_GUILD_ID := os.getenv("TEST_GUILD_ID"):
+if tg := os.getenv("TEST_GUILD_ID"):
     try:
-        TEST_GUILD = discord.Object(int(TEST_GUILD_ID))
+        TEST_GUILD = discord.Object(int(tg))
     except ValueError:
         print("WARNING: TEST_GUILD_ID is not an integer; ignoring.")
 
@@ -57,7 +60,7 @@ class GalaxyBot(commands.Bot):
         self.pool: asyncpg.Pool | None = None
 
     async def setup_hook(self) -> None:
-        # open DB pool & init schema (without dropping existing tables)
+        # Open DB pool & initialize schema
         self.pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=5)
         await self._init_db()
 
@@ -73,7 +76,7 @@ class GalaxyBot(commands.Bot):
     async def _init_db(self) -> None:
         assert self.pool is not None
         async with self.pool.acquire() as conn:
-            # alliances & members
+            # Create alliances & members tables
             await conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS alliances (
@@ -86,7 +89,7 @@ class GalaxyBot(commands.Bot):
                 );
                 """
             )
-            # colonies (persistent, no drop)
+            # Create colonies table (allow duplicates at same coords)
             await conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS colonies (
@@ -107,7 +110,7 @@ class GalaxyBot(commands.Bot):
 bot = GalaxyBot()
 
 # ---------------------------------------------------------------------------
-# DB helper functions
+# Database helper functions
 # ---------------------------------------------------------------------------
 async def alliance_exists(name: str) -> bool:
     async with bot.pool.acquire() as conn:
@@ -134,14 +137,14 @@ async def all_alliances() -> List[str]:
 
 async def get_members_with_colonies(
     alliance: str
-) -> List[Tuple[str, int, List[Tuple[int,int,int]]]]:
+) -> List[Tuple[str,int,List[Tuple[int,int,int]]]]:
     """
     Returns:
       [
-        (member_name, total_colonies, [(starbase, x, y), ...]),
+        (member_name, colony_count, [(starbase,x,y), ...]),
         ...
       ]
-    Sorted by member name, each member’s colonies sorted by starbase DESC.
+    Sorted by member name, with each member's colonies sorted by starbase DESC.
     """
     query = """
         SELECT m.member,
@@ -163,7 +166,7 @@ async def get_members_with_colonies(
         rows = await conn.fetch(query, alliance)
     result: List[Tuple[str,int,List[Tuple[int,int,int]]]] = []
     for r in rows:
-        raw = r["data"]  # list of "starbase,x,y"
+        raw = r["data"]
         cols: List[Tuple[int,int,int]] = []
         for trio in raw:
             sb, xs, ys = trio.split(",")
@@ -275,14 +278,20 @@ async def list_alliances(inter: discord.Interaction):
         return await inter.response.send_message("No alliances recorded.", ephemeral=True)
     await inter.response.send_message("\n".join(f"- {n}" for n in names))
 
-@bot.tree.command(description="Delete an alliance (admin only).")
+@bot.tree.command(description="Delete an alliance (requires password).")
 @app_commands.autocomplete(alliance=alliance_ac)
-async def reset(inter: discord.Interaction, alliance: str):
+async def reset(
+    inter: discord.Interaction,
+    alliance: str,
+    password: str
+):
+    if password != DELETE_PASSWORD:
+        return await inter.response.send_message("❌ Invalid password.", ephemeral=True)
     if not await alliance_exists(alliance):
         return await inter.response.send_message("❌ Alliance not found.", ephemeral=True)
     async with bot.pool.acquire() as conn:
         await conn.execute("DELETE FROM alliances WHERE name=$1", alliance)
-    await inter.response.send_message("✅ Alliance deleted.", ephemeral=True)
+    await inter.response.send_message(f"✅ Alliance **{alliance}** deleted.", ephemeral=True)
 
 @bot.tree.command(description="Remove a member & their colonies.")
 @app_commands.autocomplete(alliance=alliance_ac, member=member_ac_factory("alliance"))
