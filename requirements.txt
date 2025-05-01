@@ -1,1 +1,2 @@
-python-dotenv>=1.0.0  # (optional) load env vars from a .env file
+discord.py>=2.3.0,<3.0
+python-dotenv>=1.0.0   # optional—only if you want to load a local .env while testing
