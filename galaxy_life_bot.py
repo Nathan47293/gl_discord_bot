@@ -286,3 +286,17 @@ async def reset(inter: discord.Interaction, alliance: str):
     async with bot.pool.acquire() as conn:  # type: ignore
         await conn.execute("DELETE FROM alliances WHERE name=$1", alliance)
     await inter.response.send
+    await inter.response.send_message("Alliance deleted.", ephemeral=True)
+
+@reset.error
+async def reset_error(inter: discord.Interaction, error: app_commands.AppCommandError):
+    if isinstance(error, app_commands.errors.MissingPermissions):
+        await inter.response.send_message("Administrator permission required.", ephemeral=True)
+    else:
+        raise error
+
+# ---------------------------------------------------------------------------
+# Run bot
+# ---------------------------------------------------------------------------
+if __name__ == "__main__":
+    bot.run(TOKEN)
