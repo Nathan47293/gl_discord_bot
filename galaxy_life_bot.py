@@ -30,8 +30,8 @@ from discord.ext import commands
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-MAX_COLONIES = 11
-MAX_MEMBERS = 50
+MAX_COLONIES    = 11
+MAX_MEMBERS     = 50
 DELETE_PASSWORD = "HAC#ER4LFElol567"
 
 # ---------------------------------------------------------------------------
@@ -63,7 +63,7 @@ class GalaxyBot(commands.Bot):
         self.pool: asyncpg.Pool | None = None
 
     async def setup_hook(self) -> None:
-        # Initialize DB pool and schema
+        # Initialize DB pool & schema
         self.pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=5)
         await self._init_db()
 
@@ -105,7 +105,7 @@ class GalaxyBot(commands.Bot):
                     REFERENCES members(alliance, member) ON DELETE CASCADE
                 );
             """)
-            # Settings table for storing your alliance per guild
+            # Per-guild setting for your alliance
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS settings (
                   guild_id TEXT PRIMARY KEY,
@@ -148,7 +148,7 @@ async def get_members_with_colonies(
 ) -> List[Tuple[str,int,List[Tuple[int,int,int]]]]:
     """
     Returns [(member, count, [(starbase,x,y),...]), ...],
-    sorted by member name, colonies sorted by starbase DESC.
+    sorted by member name; colonies sorted by starbase DESC.
     """
     query = """
       SELECT m.member,
@@ -168,15 +168,15 @@ async def get_members_with_colonies(
     """
     async with bot.pool.acquire() as conn:
         rows = await conn.fetch(query, alliance)
-    result: List[Tuple[str,int,List[Tuple[int,int,int]]]] = []
+    out: List[Tuple[str,int,List[Tuple[int,int,int]]]] = []
     for r in rows:
         raw = r["data"]
         cols: List[Tuple[int,int,int]] = []
         for trio in raw:
             sb, xs, ys = trio.split(",")
             cols.append((int(sb), int(xs), int(ys)))
-        result.append((r["member"], r["cnt"], cols))
-    return result
+        out.append((r["member"], r["cnt"], cols))
+    return out
 
 async def get_own_alliance(guild_id: str) -> str | None:
     async with bot.pool.acquire() as conn:
@@ -188,7 +188,7 @@ async def set_own_alliance(guild_id: str, alliance: str) -> None:
     async with bot.pool.acquire() as conn:
         await conn.execute("""
             INSERT INTO settings(guild_id, alliance)
-            VALUES($1, $2)
+            VALUES($1,$2)
             ON CONFLICT(guild_id) DO UPDATE SET alliance=EXCLUDED.alliance
         """, guild_id, alliance)
 
@@ -228,7 +228,11 @@ async def addalliance(inter: discord.Interaction, name: str):
 
 @bot.tree.command(description="Add a member to an alliance.")
 @app_commands.autocomplete(alliance=alliance_ac)
-async def addmember(inter: discord.Interaction, alliance: str, member: str):
+async def addmember(
+    inter: discord.Interaction,
+    alliance: str,
+    member: str
+):
     if not await alliance_exists(alliance):
         return await inter.response.send_message("❌ Alliance not found.", ephemeral=True)
     if await member_exists(alliance, member):
@@ -263,7 +267,10 @@ async def addcolony(
 
 @bot.tree.command(description="Show an alliance’s members & colonies.")
 @app_commands.autocomplete(alliance=alliance_ac)
-async def show(inter: discord.Interaction, alliance: str):
+async def show(
+    inter: discord.Interaction,
+    alliance: str
+):
     if not await alliance_exists(alliance):
         return await inter.response.send_message("❌ Alliance not found.", ephemeral=True)
 
@@ -282,11 +289,8 @@ async def show(inter: discord.Interaction, alliance: str):
                 embed.add_field(name=f"{member} (0)", value="—", inline=False)
             else:
                 lines = "\n".join(f"SB{sb} ({xx},{yy})" for sb,xx,yy in cols)
-                embed.add_field(
-                    name=f"{member} ({cnt}/{MAX_COLONIES})",
-                    value=lines,
-                    inline=False
-                )
+                embed.add_field(name=f"{member} ({cnt}/{MAX_COLONIES})", value=lines, inline=False)
+
     embed.set_footer(text=f"{total_colonies} colonies discovered")
     await inter.response.send_message(embed=embed)
 
@@ -312,7 +316,7 @@ async def reset(
         await conn.execute("DELETE FROM alliances WHERE name=$1", alliance)
     await inter.response.send_message(f"✅ Alliance **{alliance}** deleted.", ephemeral=True)
 
-@bot.tree.command(description="Set your own alliance for this server (requires password).")
+@bot.tree.command(description="Set your own alliance (requires password).")
 @app_commands.autocomplete(alliance=alliance_ac)
 async def setalliance(
     inter: discord.Interaction,
@@ -327,7 +331,7 @@ async def setalliance(
     await inter.response.send_message(f"✅ This server's alliance set to **{alliance}**.", ephemeral=True)
 
 @bot.tree.command(description="Attack an enemy alliance: show respawn timers.")
-@app_commands.autocomplete(alliance=alliance_ac)
+@app_commands.autocomplete(target=alliance_ac)
 async def attack(
     inter: discord.Interaction,
     target: str
@@ -341,7 +345,6 @@ async def attack(
     if not await alliance_exists(target):
         return await inter.response.send_message("❌ Enemy alliance not found.", ephemeral=True)
 
-    # fetch sizes
     async with bot.pool.acquire() as conn:
         A = await conn.fetchval(
             "SELECT COUNT(*) FROM members WHERE alliance=$1", own
@@ -350,7 +353,6 @@ async def attack(
             "SELECT COUNT(*) FROM members WHERE alliance=$1", target
         )
 
-    # compute timers
     ratio_enemy = max(E/A, 1)
     ratio_you   = max(A/E, 1)
     T_enemy = round(4 * ratio_enemy)
@@ -360,16 +362,8 @@ async def attack(
         title=f"Attack: **{own}** vs **{target}**",
         color=discord.Color.purple()
     )
-    embed.add_field(
-        name="🛡️ Our base respawn time",
-        value=f"{T_you} hours",
-        inline=True
-    )
-    embed.add_field(
-        name="⚔️ Enemy base respawn time",
-        value=f"{T_enemy} hours",
-        inline=True
-    )
+    embed.add_field(name="🛡️ Our base respawn time",    value=f"{T_you} hours",   inline=True)
+    embed.add_field(name="⚔️ Enemy base respawn time", value=f"{T_enemy} hours", inline=True)
     await inter.response.send_message(embed=embed)
 
 # ---------------------------------------------------------------------------
