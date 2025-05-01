@@ -13,7 +13,7 @@ Requirements (in requirements.txt):
 Env vars:
     DISCORD_BOT_TOKEN – your bot token
     DATABASE_URL      – Railway Postgres plugin URL
-    TEST_GUILD_ID     – optional guild ID for instant slash‐command sync
+    TEST_GUILD_ID     – optional guild ID for instant slash-command sync
 
 Schema auto-created:
     alliances(name TEXT PRIMARY KEY)
@@ -33,7 +33,7 @@ from discord.ext import commands
 MAX_COLONIES = 11
 
 # ---------------------------------------------------------------------------
-# Config & sanity checks
+# Configuration checks
 # ---------------------------------------------------------------------------
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 if not TOKEN:
@@ -61,22 +61,22 @@ class GalaxyBot(commands.Bot):
         self.pool: asyncpg.Pool | None = None
 
     async def setup_hook(self) -> None:
-        # 1) Initialize DB pool & schema
+        # 1) Initialize DB pool and schema
         self.pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=5)
         await self._init_db()
 
-        # 2) Clear out *all* existing commands (global + guild) to avoid duplicates
+        # 2) Wipe out any existing cached commands (global + guild)
         self.tree.clear_commands(guild=None)
         if TEST_GUILD:
             self.tree.clear_commands(guild=TEST_GUILD)
 
-            # 3) Copy our code-defined commands into that test guild
+            # 3) Copy our local commands into that test guild only
             self.tree.copy_global_to(guild=TEST_GUILD)
             await self.tree.sync(guild=TEST_GUILD)
             print(f"❇ Cleared & re-synced slash-commands to test guild {TEST_GUILD.id}")
         else:
-            # 4) In production you could sync global if you wanted; here we leave it empty
-            print("✅ Running without TEST_GUILD_ID; no guild-only sync performed.")
+            # In production we leave global empty (or you could sync globally here)
+            print("✅ No TEST_GUILD_ID set, running without guild-only sync")
 
     async def _init_db(self) -> None:
         assert self.pool is not None
@@ -97,7 +97,7 @@ class GalaxyBot(commands.Bot):
                     x        INT,
                     y        INT,
                     PRIMARY KEY(alliance, member, x, y),
-                    FOREIGN KEY(alliance, member)
+                    FOREIGN KEY (alliance, member)
                         REFERENCES members(alliance, member)
                         ON DELETE CASCADE
                 );
@@ -134,16 +134,18 @@ async def all_alliances() -> List[str]:
         rows = await conn.fetch("SELECT name FROM alliances ORDER BY name")
     return [r[0] for r in rows]
 
-async def get_members_with_colonies(alliance: str) -> List[Tuple[str, int, List[Tuple[int,int]]]]:
+async def get_members_with_colonies(alliance: str) -> List[Tuple[str,int,List[Tuple[int,int]]]]:
     query = """
         SELECT m.member,
                COUNT(c.x) AS ncol,
-               COALESCE(array_agg(c.x||','||c.y ORDER BY c.x,c.y)
-                        FILTER (WHERE c.x IS NOT NULL), '{}') AS coords
+               COALESCE(
+                 array_agg(c.x||','||c.y ORDER BY c.x,c.y)
+                 FILTER (WHERE c.x IS NOT NULL), '{}'
+               ) AS coords
         FROM members m
         LEFT JOIN colonies c
-          ON c.alliance = m.alliance AND c.member = m.member
-        WHERE m.alliance = $1
+          ON c.alliance=m.alliance AND c.member=m.member
+        WHERE m.alliance=$1
         GROUP BY m.member
         ORDER BY m.member;
     """
@@ -151,7 +153,7 @@ async def get_members_with_colonies(alliance: str) -> List[Tuple[str, int, List[
         rows = await conn.fetch(query, alliance)
     result: List[Tuple[str,int,List[Tuple[int,int]]]] = []
     for r in rows:
-        coords = [tuple(map(int, s.split(','))) for s in r[2]] if r[2] else []
+        coords = [tuple(map(int,s.split(','))) for s in r[2]] if r[2] else []
         result.append((r[0], r[1], coords))
     return result
 
@@ -233,12 +235,10 @@ async def show(inter: discord.Interaction, alliance: str):
 
     members = await get_members_with_colonies(alliance)
     total = len(members)
-
     embed = discord.Embed(
         title=f"{alliance} ({total}/50 members)",
         color=discord.Color.blue()
     )
-
     if not members:
         embed.description = "No members recorded."
     else:
@@ -249,7 +249,6 @@ async def show(inter: discord.Interaction, alliance: str):
                 value=coord_str,
                 inline=False
             )
-
     await inter.response.send_message(embed=embed)
 
 @bot.tree.command(name="list", description="List all alliances.")
@@ -310,7 +309,7 @@ async def renamemember(inter: discord.Interaction, alliance: str, old: str, new:
             "UPDATE colonies SET member=$1 WHERE alliance=$2 AND member=$3",
             new, alliance, old
         )
-    await inter.response.send_message(f"Renamed **{old}** ➔ **{new}**.", ephemeral=True)
+    await inter.response.send_message(f"Renamed **{old}** → **{new}**.", ephemeral=True)
 
 # ---------------------------------------------------------------------------
 # Run the bot
