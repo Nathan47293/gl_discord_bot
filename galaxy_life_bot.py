@@ -371,53 +371,72 @@ async def renamemember(
 
 @bot.tree.command(description="Start a war against an enemy alliance and show war stats.")
 @app_commands.autocomplete(target=alliance_ac)
-async def attack(inter: discord.Interaction, target: str):
+async def attack(
+    inter: discord.Interaction,
+    target: str
+):
+    # Ensure active alliance is set
     own = await get_active_alliance(str(inter.guild_id))
     if not own:
         return await inter.response.send_message(
             "❌ Please set your alliance first with /setalliance.", ephemeral=True
         )
 
+    # Validate target alliance
     if not await alliance_exists(target):
-        return await inter.response.send_message("❌ Enemy alliance not found.", ephemeral=True)
+        return await inter.response.send_message(
+            "❌ Enemy alliance not found.", ephemeral=True
+        )
 
     async with bot.pool.acquire() as conn:
-        A = await conn.fetchval("SELECT COUNT(*) FROM members WHERE alliance=$1", own)
-        E = await conn.fetchval("SELECT COUNT(*) FROM members WHERE alliance=$1", target)
+        # Count members for cooldown ratios
+        A = await conn.fetchval(
+            "SELECT COUNT(*) FROM members WHERE alliance=$1", own
+        )
+        E = await conn.fetchval(
+            "SELECT COUNT(*) FROM members WHERE alliance=$1", target
+        )
 
-        # Get starbase levels for WP calculations
-        def wp_from_sb(sb_level: int) -> int:
-            wp_map = {1: 100, 2: 200, 3: 300, 4: 400, 5: 600,
-                      6: 1000, 7: 1500, 8: 2000, 9: 2500}
-            return wp_map.get(sb_level, 0)
+        # Map starbase level to warpoints
+        wp_map = {1: 100, 2: 200, 3: 300, 4: 400, 5: 600,
+                  6: 1000, 7: 1500, 8: 2000, 9: 2500}
 
-        # Calculate WP for both alliances
-        async def total_wp(alliance: str) -> int:
-            rows = await conn.fetch(
-                "SELECT starbase FROM colonies WHERE alliance=$1", alliance
-            )
-            members_main_sb = await conn.fetch(
-                "SELECT main_sb FROM members WHERE alliance=$1", alliance
-            )
-            total = sum(wp_from_sb(r['starbase']) for r in rows)
-            total += sum(wp_from_sb(m['main_sb']) for m in members_main_sb)
-            return total
+        # Sum warpoints for all main SBs
+        main_rows = await conn.fetch(
+            "SELECT main_sb FROM members WHERE alliance=$1", target
+        ) + await conn.fetch(
+            "SELECT main_sb FROM members WHERE alliance=$1", own
+        )
 
-        own_wp = await total_wp(target)  # WP gained by our alliance from attacking enemy
-        enemy_wp = await total_wp(own)   # WP gained by enemy from attacking our alliance
+        # Sum warpoints for all colonies
+        col_rows = await conn.fetch(
+            "SELECT starbase, alliance FROM colonies"
+        )
 
-    # Calculate respawn timers (swapped sides)
-    ratio_enemy = max(E/A, 1)
-    ratio_you   = max(A/E, 1)
+    # Calculate total warpoints gained per raid
+    # WP earned by our alliance attacking their planets
+    own_wp = sum(wp_map.get(r['main_sb'], 0)
+                 for r in main_rows if r['_row_highl_ps_1']==target)
+    own_wp += sum(wp_map.get(r['starbase'], 0)
+                  for r in col_rows if r['alliance']==target)
+
+    # WP earned by enemy alliance attacking our planets
+    enemy_wp = sum(wp_map.get(r['main_sb'], 0)
+                   for r in main_rows if r['_row_highl_ps_1']==own)
+    enemy_wp += sum(wp_map.get(r['starbase'], 0)
+                    for r in col_rows if r['alliance']==own)
+
+    # Calculate swapped cooldowns
+    ratio_enemy = max(E / A, 1)
+    ratio_you   = max(A / E, 1)
     T_enemy = round(4 * ratio_enemy)
     T_you   = round(4 * ratio_you)
 
+    # Build war embed
     embed = discord.Embed(
         title=f"War! **{own}** vs **{target}**",
         color=discord.Color.red()
     )
-
-    # Swapped cooldown texts
     embed.add_field(
         name="⚔️ Attacking cooldown",
         value=f"{T_enemy} hours",
@@ -428,8 +447,6 @@ async def attack(inter: discord.Interaction, target: str):
         value=f"{T_you} hours",
         inline=True
     )
-
-    # Warpoints fields
     embed.add_field(
         name="⭐ WP/Raid",
         value=f"{own_wp:,}",
@@ -442,7 +459,6 @@ async def attack(inter: discord.Interaction, target: str):
     )
 
     await inter.response.send_message(embed=embed)
-
 # ────────────────────────────────────────────────────────────────────────────
 # Run
 # ────────────────────────────────────────────────────────────────────────────
