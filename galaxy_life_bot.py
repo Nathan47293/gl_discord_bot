@@ -219,16 +219,30 @@ async def addcolony(inter: discord.Interaction, alliance: str, member: str, x: i
 @bot.tree.command(description="Show an alliance’s members & colonies.")
 @app_commands.autocomplete(alliance=alliance_ac)
 async def show(inter: discord.Interaction, alliance: str):
+    # Verify alliance exists
     if not await alliance_exists(alliance):
         return await inter.response.send_message("Alliance not found.", ephemeral=True)
+
     members = await get_members_with_colonies(alliance)
-    embed = discord.Embed(title=alliance, color=discord.Color.blue())
+    total_members = len(members)
+
+    # Embed title shows member count / 50
+    embed = discord.Embed(
+        title=f"{alliance} ({total_members}/50 members)",
+        color=discord.Color.blue()
+    )
+
     if not members:
         embed.description = "No members recorded."
     else:
         for name, count, coords in members:
             coord_str = ", ".join(f"{x},{y}" for x, y in coords) or "None"
-            embed.add_field(name=f"{name} ({count}/{MAX_COLONIES})", value=coord_str, inline=False)
+            embed.add_field(
+                name=f"{name} ({count}/{MAX_COLONIES})",
+                value=coord_str,
+                inline=False
+            )
+
     await inter.response.send_message(embed=embed, ephemeral=False)
 
 @bot.tree.command(description="List all alliances.")
