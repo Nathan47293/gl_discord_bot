@@ -1,0 +1,1 @@
+python-dotenv>=1.0.0  # (optional) load env vars from a .env file
