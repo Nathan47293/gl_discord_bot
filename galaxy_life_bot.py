@@ -64,27 +64,24 @@ if "TEST_GUILD_ID" in os.environ:
 # ---------------------------------------------------------------------------
 intents = discord.Intents.default()
 
-class GalaxyBot(commands.Bot):
-    def __init__(self) -> None:
-        super().__init__(command_prefix="!", intents=intents, help_command=None)
-        self.pool: asyncpg.Pool | None = None
-
-    async def setup_hook(self) -> None:
-        # Initialize DB pool and schema
+async def setup_hook(self) -> None:
+        # Initialize DB …
         self.pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=5)
         await self._init_db()
 
         if TEST_GUILD:
-            # Clear stale commands in the test guild
+            # 1) Delete all global commands
+            self.tree.clear_commands(guild=None)
+            # 2) Delete all existing guild commands
             self.tree.clear_commands(guild=TEST_GUILD)
-            # Copy current commands to the test guild
+            # 3) Register *only* your code’s commands in that guild
             self.tree.copy_global_to(guild=TEST_GUILD)
+            # 4) Sync to push them live
             await self.tree.sync(guild=TEST_GUILD)
-            print(f"❇ Cleared & re-synced test commands to guild {TEST_GUILD.id}")
+            print(f"❇ Cleared GLOBAL & GUILD commands, re-synced to guild {TEST_GUILD.id}")
         else:
-            # Global sync (may take up to 1h)
-            await self.tree.sync()
-            print("✅ Global commands synced (may take up to an hour to propagate)")
+            # In production you can leave this empty (or sync globals if you want)
+            print("Running in production: no test-guild sync")
 
     async def _init_db(self) -> None:
         assert self.pool is not None
