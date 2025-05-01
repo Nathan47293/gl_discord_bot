@@ -2,7 +2,7 @@
 """
 Galaxy Life Alliance Tracker Bot — PostgreSQL edition with duplicate coords & persistent data
 ===========================================================================================
-Auto‐creates tables if missing (won’t drop your existing data), allows multiple
+Auto-creates tables if missing (won’t drop your existing data), allows multiple
 colonies at the same (x,y) with starbase levels, and has a working /list command.
 
 Requirements (requirements.txt):
@@ -12,7 +12,7 @@ Requirements (requirements.txt):
 Environment variables:
     DISCORD_BOT_TOKEN – your bot token
     DATABASE_URL      – Railway Postgres plugin URL
-    TEST_GUILD_ID     – optional guild ID for instant slash‐command sync
+    TEST_GUILD_ID     – optional guild ID for instant slash-command sync
 """
 
 from __future__ import annotations
@@ -304,8 +304,7 @@ async def removecolony(
         return await inter.response.send_message("❌ Member not found.", ephemeral=True)
     async with bot.pool.acquire() as conn:
         res = await conn.execute(
-            "DELETE FROM colonies WHERE alliance=$1 AND member=$2
-                 AND starbase=$3 AND x=$4 AND y=$5",
+            "DELETE FROM colonies WHERE alliance=$1 AND member=$2 AND starbase=$3 AND x=$4 AND y=$5",
             alliance, member, starbase, x, y
         )
     if res.endswith("0"):
