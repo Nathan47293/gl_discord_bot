@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-Galaxy Life Alliance Tracker Bot — PostgreSQL edition with duplicate coords & persistent data
-===========================================================================================
+Galaxy Life Alliance Tracker Bot — PostgreSQL edition with duplicate coords & colony summary
+==========================================================================================
 Auto-creates tables if missing (won’t drop your existing data), allows multiple
-colonies at the same (x,y) with starbase levels, and has a working /list command.
+colonies at the same (x,y) with starbase levels, shows total colonies discovered,
+and includes a working /list command.
 
 Requirements (requirements.txt):
     discord.py>=2.3
@@ -56,7 +57,7 @@ class GalaxyBot(commands.Bot):
         self.pool: asyncpg.Pool | None = None
 
     async def setup_hook(self) -> None:
-        # open DB pool & init schema (without dropping existing tables!)
+        # open DB pool & init schema (without dropping existing tables)
         self.pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=5)
         await self._init_db()
 
@@ -85,7 +86,7 @@ class GalaxyBot(commands.Bot):
                 );
                 """
             )
-            # colonies: only create if missing, do NOT drop
+            # colonies (persistent, no drop)
             await conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS colonies (
@@ -212,10 +213,7 @@ async def addmember(inter: discord.Interaction, alliance: str, member: str):
     if await member_exists(alliance, member):
         return await inter.response.send_message("❌ Member already exists.", ephemeral=True)
     async with bot.pool.acquire() as conn:
-        await conn.execute(
-            "INSERT INTO members(alliance, member) VALUES($1,$2)",
-            alliance, member
-        )
+        await conn.execute("INSERT INTO members(alliance, member) VALUES($1,$2)", alliance, member)
     await inter.response.send_message("✅ Member added.", ephemeral=True)
 
 @bot.tree.command(description="Add a colony (starbase 1–9, then X, then Y).")
@@ -246,10 +244,13 @@ async def show(inter: discord.Interaction, alliance: str):
         return await inter.response.send_message("❌ Alliance not found.", ephemeral=True)
 
     data = await get_members_with_colonies(alliance)
+    total_colonies = sum(cnt for _, cnt, _ in data)
+
     embed = discord.Embed(
         title=f"{alliance} ({len(data)}/{MAX_MEMBERS} members)",
         color=discord.Color.blue()
     )
+
     if not data:
         embed.description = "No members recorded."
     else:
@@ -258,8 +259,13 @@ async def show(inter: discord.Interaction, alliance: str):
                 embed.add_field(name=f"{member} (0)", value="—", inline=False)
             else:
                 lines = "\n".join(f"SB{sb} ({xx},{yy})" for sb,xx,yy in cols)
-                embed.add_field(name=f"{member} ({cnt}/{MAX_COLONIES})", value=lines, inline=False)
+                embed.add_field(
+                    name=f"{member} ({cnt}/{MAX_COLONIES})",
+                    value=lines,
+                    inline=False
+                )
 
+    embed.set_footer(text=f"{total_colonies} colonies discovered")
     await inter.response.send_message(embed=embed)
 
 @bot.tree.command(name="list", description="List all alliances.")
@@ -309,7 +315,9 @@ async def removecolony(
         )
     if res.endswith("0"):
         return await inter.response.send_message("❌ No such colony.", ephemeral=True)
-    await inter.response.send_message(f"✅ Removed SB{starbase} ({x},{y}) for **{member}**.", ephemeral=True)
+    await inter.response.send_message(
+        f"✅ Removed SB{starbase} ({x},{y}) for **{member}**.", ephemeral=True
+    )
 
 @bot.tree.command(description="Rename a member.")
 @app_commands.autocomplete(alliance=alliance_ac, old=member_ac_factory("alliance"))
