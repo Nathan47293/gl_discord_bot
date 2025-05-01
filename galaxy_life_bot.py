@@ -69,7 +69,7 @@ class GalaxyBot(commands.Bot):
         super().__init__(command_prefix="!", intents=intents, help_command=None)
         self.pool: asyncpg.Pool | None = None
 
-    async def setup_hook(self) -> None:
+        async def setup_hook(self) -> None:
         # Initialize DB pool and schema
         self.pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=5)
         await self._init_db()
@@ -77,14 +77,14 @@ class GalaxyBot(commands.Bot):
         if TEST_GUILD:
             # Clear stale commands in the test guild
             self.tree.clear_commands(guild=TEST_GUILD)
-            # Copy current commands to the test guild
-            self.tree.copy_global_to(guild=TEST_GUILD)
+            # Sync code commands to the test guild
             await self.tree.sync(guild=TEST_GUILD)
             print(f"❇ Cleared & re-synced test commands to guild {TEST_GUILD.id}")
         else:
-            # Global sync (may take up to 1h)
+            # Clear global commands and sync (may take up to 1h)
+            self.tree.clear_commands()
             await self.tree.sync()
-            print("✅ Global commands synced (may take up to an hour to propagate)")
+            print("✅ Cleared & synced global commands (may take up to an hour)")
 
     async def _init_db(self) -> None:
         assert self.pool is not None
