@@ -167,7 +167,11 @@ async def get_active_alliance(guild_id:str) -> str|None:
 # ---------------------------------------------------------------------------
 async def alliance_ac(inter, current):
     low = current.lower()
-    return [app_commands.Choice(n,n) for n in await all_alliances() if low in n.lower()][:25]
+    return [
+        app_commands.Choice(name=n, value=n)
+        for n in await all_alliances()
+        if low in n.lower()
+    ][:25]
 
 def member_ac(param):
     async def _ac(inter, cur):
@@ -177,8 +181,10 @@ def member_ac(param):
             "SELECT member FROM members WHERE alliance=$1 ORDER BY member", val
         )
         low=cur.lower()
-        return [app_commands.Choice(r["member"],r["member"])
-                for r in rows if low in r["member"].lower()][:25]
+        return [
+            app_commands.Choice(name=r["member"], value=r["member"])
+            for r in rows if low in r["member"].lower()
+        ][:25]
     return _ac
 
 # ---------------------------------------------------------------------------
@@ -293,22 +299,15 @@ async def attack(
 ):
     if password!=ADMIN_PASS:
         return await inter.response.send_message("❌ Bad password.", ephemeral=True)
-    # fetch active
     ours = await get_active_alliance(str(inter.guild_id))
     if not ours:
         return await inter.response.send_message("❌ No active alliance set.", ephemeral=True)
     if not await alliance_exists(enemy):
         return await inter.response.send_message("❌ Enemy alliance not found.", ephemeral=True)
-    # sizes
-    our_size   = len(await bot.pool.fetch(
-        "SELECT 1 FROM members WHERE alliance=$1", ours
-    ))
-    enemy_size = len(await bot.pool.fetch(
-        "SELECT 1 FROM members WHERE alliance=$1", enemy
-    ))
-    # formula
-    Te = round(4 * max(enemy_size / our_size, 1))
-    Ty = round(4 * max(our_size   / enemy_size, 1))
+    our_sz = len(await bot.pool.fetch("SELECT 1 FROM members WHERE alliance=$1", ours))
+    en_sz  = len(await bot.pool.fetch("SELECT 1 FROM members WHERE alliance=$1", enemy))
+    Te = round(4*max(en_sz/our_sz,1))
+    Ty = round(4*max(our_sz/en_sz,1))
     em = discord.Embed(title="Respawn Timers", color=discord.Color.red())
     em.add_field(name="Our base respawn",   value=f"{Ty} hours", inline=True)
     em.add_field(name="Enemy base respawn", value=f"{Te} hours", inline=True)
