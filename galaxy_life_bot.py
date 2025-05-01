@@ -371,60 +371,38 @@ async def renamemember(
 
 @bot.tree.command(description="Start a war against an enemy alliance and show war stats.")
 @app_commands.autocomplete(target=alliance_ac)
-async def attack(
-    inter: discord.Interaction,
-    target: str
-):
-    # Ensure active alliance is set
+async def attack(inter: discord.Interaction, target: str):
+    # Ensure the guild has an active alliance
     own = await get_active_alliance(str(inter.guild_id))
     if not own:
         return await inter.response.send_message(
             "❌ Please set your alliance first with /setalliance.", ephemeral=True
         )
 
-    # Validate target alliance
+    # Validate the target alliance exists
     if not await alliance_exists(target):
         return await inter.response.send_message(
             "❌ Enemy alliance not found.", ephemeral=True
         )
 
     async with bot.pool.acquire() as conn:
-        # Count members for cooldown ratios
-        A = await conn.fetchval(
-            "SELECT COUNT(*) FROM members WHERE alliance=$1", own
-        )
-        E = await conn.fetchval(
-            "SELECT COUNT(*) FROM members WHERE alliance=$1", target
-        )
+        # Count members for cooldown calculations
+        A = await conn.fetchval("SELECT COUNT(*) FROM members WHERE alliance=$1", own)
+        E = await conn.fetchval("SELECT COUNT(*) FROM members WHERE alliance=$1", target)
 
-        # Map starbase level to warpoints
+        # Warpoints mapping by starbase level
         wp_map = {1: 100, 2: 200, 3: 300, 4: 400, 5: 600,
                   6: 1000, 7: 1500, 8: 2000, 9: 2500}
 
-        # Sum warpoints for all main SBs
-        main_rows = await conn.fetch(
-            "SELECT main_sb FROM members WHERE alliance=$1", target
-        ) + await conn.fetch(
-            "SELECT main_sb FROM members WHERE alliance=$1", own
-        )
+        # Fetch main SBs and colony starbases for both alliances
+        main_enemy = await conn.fetch("SELECT main_sb FROM members WHERE alliance=$1", target)
+        col_enemy  = await conn.fetch("SELECT starbase FROM colonies WHERE alliance=$1", target)
+        main_own   = await conn.fetch("SELECT main_sb FROM members WHERE alliance=$1", own)
+        col_own    = await conn.fetch("SELECT starbase FROM colonies WHERE alliance=$1", own)
 
-        # Sum warpoints for all colonies
-        col_rows = await conn.fetch(
-            "SELECT starbase, alliance FROM colonies"
-        )
-
-    # Calculate total warpoints gained per raid
-    # WP earned by our alliance attacking their planets
-    own_wp = sum(wp_map.get(r['main_sb'], 0)
-                 for r in main_rows if r['_row_highl_ps_1']==target)
-    own_wp += sum(wp_map.get(r['starbase'], 0)
-                  for r in col_rows if r['alliance']==target)
-
-    # WP earned by enemy alliance attacking our planets
-    enemy_wp = sum(wp_map.get(r['main_sb'], 0)
-                   for r in main_rows if r['_row_highl_ps_1']==own)
-    enemy_wp += sum(wp_map.get(r['starbase'], 0)
-                    for r in col_rows if r['alliance']==own)
+    # Calculate total warpoints earned per raid
+    own_wp   = sum(wp_map.get(r['main_sb'], 0) for r in main_enemy) + sum(wp_map.get(r['starbase'], 0) for r in col_enemy)
+    enemy_wp = sum(wp_map.get(r['main_sb'], 0) for r in main_own)   + sum(wp_map.get(r['starbase'], 0) for r in col_own)
 
     # Calculate swapped cooldowns
     ratio_enemy = max(E / A, 1)
@@ -432,34 +410,17 @@ async def attack(
     T_enemy = round(4 * ratio_enemy)
     T_you   = round(4 * ratio_you)
 
-    # Build war embed
+    # Build the war embed
     embed = discord.Embed(
         title=f"War! **{own}** vs **{target}**",
         color=discord.Color.red()
     )
-    embed.add_field(
-        name="⚔️ Attacking cooldown",
-        value=f"{T_enemy} hours",
-        inline=True
-    )
-    embed.add_field(
-        name="🛡️ Defending cooldown",
-        value=f"{T_you} hours",
-        inline=True
-    )
-    embed.add_field(
-        name="⭐ WP/Raid",
-        value=f"{own_wp:,}",
-        inline=True
-    )
-    embed.add_field(
-        name="★ Enemy WP/Raid",
-        value=f"{enemy_wp:,}",
-        inline=True
-    )
+    embed.add_field(name="⚔️ Attacking cooldown", value=f"{T_enemy} hours", inline=True)
+    embed.add_field(name="🛡️ Defending cooldown", value=f"{T_you} hours", inline=True)
+    embed.add_field(name="⭐ WP/Raid", value=f"{own_wp:,}", inline=True)
+    embed.add_field(name="★ Enemy WP/Raid", value=f"{enemy_wp:,}", inline=True)
 
-    await inter.response.send_message(embed=embed)
-# ────────────────────────────────────────────────────────────────────────────
+    await inter.response.send_message(embed=embed)# ────────────────────────────────────────────────────────────────────────────
 # Run
 # ────────────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
