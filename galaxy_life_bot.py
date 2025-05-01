@@ -1,99 +1,173 @@
 # -*- coding: utf-8 -*-
 """
-Galaxy Life Alliance Tracker Bot – colonies only (ASCII‑safe)
-============================================================
-Discord slash‑command bot that tracks enemy alliances in Galaxy Life.
+Galaxy Life Alliance Tracker Bot — **PostgreSQL edition**
+========================================================
+Persistent across every deploy **without volumes**.  Data is stored in the
+free Railway **PostgreSQL** plugin; nothing writes to the container’s disk.
 
-* No main planet field — each member can have up to 11 colony coordinates.
-* Fixed: uses copy_global_to for discord.py ≥ 2.3.
+Key points
+----------
+* Same slash‑command API you already use.
+* Tables auto‑create on first run — no manual migrations.
+* Works in any Railway region (metal or non‑metal).
 
-Commands
---------
-/addalliance name
-/addmember alliance member
-/addcolony alliance member x y
-/show alliance
-/list
-/reset alliance (admin only)
+Add these to **requirements.txt** and commit:
+```
+discord.py>=2.3
+asyncpg>=0.29
+```
+
+Environment variables needed:
+* `DISCORD_BOT_TOKEN` – your Discord bot token (already set).
+* `DATABASE_URL`      – auto‑created by Railway when you add the Postgres plugin.
+* `TEST_GUILD_ID`     – *(optional)* guild ID for instant slash‑command sync.
+
+Schema (all created automatically):
+```
+alliances(name TEXT PRIMARY KEY)
+members(alliance TEXT, member TEXT, PRIMARY KEY (alliance, member))
+colonies(alliance TEXT, member TEXT, x INT, y INT,
+         PRIMARY KEY(alliance, member, x, y))
+```
+Each member is limited to **11 colonies**.
 """
 
 from __future__ import annotations
 
-import json
 import os
-from typing import Any, Dict, List
+from typing import List, Tuple
 
+import asyncpg
 import discord
 from discord import app_commands
 from discord.ext import commands
-import os, json
-
-# NEW — let you override in Railway variables if you want
-DATA_DIR = os.getenv("DATA_DIR", "/data")      # /data is the mount path
-os.makedirs(DATA_DIR, exist_ok=True)           # ensure directory exists
-
-DATA_FILE = os.path.join(DATA_DIR, "alliances.json")
 
 MAX_COLONIES = 11
 
 # ---------------------------------------------------------------------------
-# Persistence helpers
+# Config & sanity checks
 # ---------------------------------------------------------------------------
+TOKEN = os.getenv("DISCORD_BOT_TOKEN")
+if not TOKEN:
+    raise RuntimeError("Set the DISCORD_BOT_TOKEN env var.")
 
-def load_data() -> Dict[str, Any]:
-    if os.path.isfile(DATA_FILE):
-        with open(DATA_FILE, "r", encoding="utf-8") as fp:
-            return json.load(fp)
-    return {}
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError("Add the PostgreSQL plugin so DATABASE_URL is set.")
 
-
-def save_data(data: Dict[str, Any]) -> None:
-    with open(DATA_FILE, "w", encoding="utf-8") as fp:
-        json.dump(data, fp, indent=2)
-
-alliances: Dict[str, Any] = load_data()
+TEST_GUILD = None
+if "TEST_GUILD_ID" in os.environ:
+    try:
+        TEST_GUILD = discord.Object(int(os.environ["TEST_GUILD_ID"]))
+    except ValueError:
+        print("TEST_GUILD_ID must be an integer guild id")
 
 # ---------------------------------------------------------------------------
-# Utility helpers
+# Bot with a global asyncpg pool
 # ---------------------------------------------------------------------------
+intents = discord.Intents.default()
 
-def key(name: str) -> str:
-    """Normalize to lower‑case so look‑ups are case‑insensitive."""
-    return name.lower()
+class GalaxyBot(commands.Bot):
+    def __init__(self) -> None:
+        super().__init__(command_prefix="!", intents=intents, help_command=None)
+        self.pool: asyncpg.Pool | None = None
 
+    async def setup_hook(self) -> None:
+        # open DB pool & init schema
+        self.pool = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=5)
+        await self._init_db()
 
-def get_alliance(name: str) -> Dict[str, Any]:
-    k = key(name)
-    if k not in alliances:
-        raise app_commands.AppCommandError(f"Alliance '{name}' not found.")
-    return alliances[k]
+        # sync commands fast to test guild if provided
+        if TEST_GUILD:
+            self.tree.copy_global_to(guild=TEST_GUILD)
+            await self.tree.sync(guild=TEST_GUILD)
+            print(f"Commands synced to test guild {TEST_GUILD.id}")
+        else:
+            await self.tree.sync()
+            print("Global commands synced (can take up to an hour first time)")
 
+    async def _init_db(self):
+        assert self.pool is not None
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS alliances (
+                    name TEXT PRIMARY KEY
+                );
+                CREATE TABLE IF NOT EXISTS members (
+                    alliance TEXT REFERENCES alliances(name) ON DELETE CASCADE,
+                    member   TEXT,
+                    PRIMARY KEY(alliance, member)
+                );
+                CREATE TABLE IF NOT EXISTS colonies (
+                    alliance TEXT,
+                    member   TEXT,
+                    x        INT,
+                    y        INT,
+                    PRIMARY KEY(alliance, member, x, y),
+                    FOREIGN KEY (alliance, member)
+                        REFERENCES members(alliance, member)
+                        ON DELETE CASCADE
+                );
+                """
+            )
 
-def get_member(a: Dict[str, Any], member_name: str) -> Dict[str, Any]:
-    mk = key(member_name)
-    if mk not in a["members"]:
-        raise app_commands.AppCommandError(
-            f"Member '{member_name}' not found in {a['display_name']}."
+bot = GalaxyBot()
+
+# ---------------------------------------------------------------------------
+# Helper / DB utility functions
+# ---------------------------------------------------------------------------
+async def alliance_exists(name: str) -> bool:
+    async with bot.pool.acquire() as conn:  # type: ignore
+        return await conn.fetchval("SELECT 1 FROM alliances WHERE name=$1", name) is not None
+
+async def member_exists(alliance: str, member: str) -> bool:
+    async with bot.pool.acquire() as conn:  # type: ignore
+        return (
+            await conn.fetchval(
+                "SELECT 1 FROM members WHERE alliance=$1 AND member=$2", alliance, member
+            )
+        ) is not None
+
+async def colony_count(alliance: str, member: str) -> int:
+    async with bot.pool.acquire() as conn:  # type: ignore
+        return await conn.fetchval(
+            "SELECT COUNT(*) FROM colonies WHERE alliance=$1 AND member=$2", alliance, member
         )
-    return a["members"][mk]
 
+async def all_alliances() -> List[str]:
+    async with bot.pool.acquire() as conn:  # type: ignore
+        rows = await conn.fetch("SELECT name FROM alliances ORDER BY name")
+    return [r[0] for r in rows]
 
-async def respond(inter: discord.Interaction, msg: str, *, ep: bool = True):
-    if inter.response.is_done():
-        await inter.followup.send(msg, ephemeral=ep)
-    else:
-        await inter.response.send_message(msg, ephemeral=ep)
+async def get_members_with_colonies(alliance: str) -> List[Tuple[str, int, List[Tuple[int, int]]]]:
+    query = """
+        SELECT m.member,
+               COUNT(c.x) AS ncol,
+               COALESCE(array_agg(c.x || ',' || c.y ORDER BY c.x, c.y)
+                        FILTER (WHERE c.x IS NOT NULL), '{}') AS coords
+        FROM members m
+        LEFT JOIN colonies c
+               ON c.alliance = m.alliance AND c.member = m.member
+        WHERE m.alliance = $1
+        GROUP BY m.member
+        ORDER BY m.member;
+    """
+    async with bot.pool.acquire() as conn:  # type: ignore
+        rows = await conn.fetch(query, alliance)
+    results: List[Tuple[str, int, List[Tuple[int, int]]]] = []
+    for r in rows:
+        coords_list = [tuple(map(int, s.split(','))) for s in r[2]] if r[2] else []
+        results.append((r[0], r[1], coords_list))
+    return results
 
 # ---------------------------------------------------------------------------
 # Autocomplete helpers
 # ---------------------------------------------------------------------------
-async def alliance_ac(inter: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
+async def alliance_ac(inter: discord.Interaction, current: str):
+    names = await all_alliances()
     cur = current.lower()
-    return [
-        app_commands.Choice(name=a["display_name"], value=a["display_name"])
-        for a in alliances.values()
-        if cur in a["display_name"].lower()
-    ][:25]
+    return [app_commands.Choice(name=n, value=n) for n in names if cur in n.lower()][:25]
 
 
 def member_ac_factory(param_alliance: str):
@@ -101,43 +175,16 @@ def member_ac_factory(param_alliance: str):
         alliance_val = getattr(inter.namespace, param_alliance, None)
         if not alliance_val:
             return []
-        a = alliances.get(key(alliance_val))
-        if not a:
-            return []
+        async with bot.pool.acquire() as conn:  # type: ignore
+            rows = await conn.fetch(
+                "SELECT member FROM members WHERE alliance=$1 ORDER BY member", alliance_val
+            )
         cur = current.lower()
         return [
-            app_commands.Choice(name=m["display_name"], value=m["display_name"])
-            for m in a["members"].values()
-            if cur in m["display_name"].lower()
+            app_commands.Choice(name=r[0], value=r[0]) for r in rows if cur in r[0].lower()
         ][:25]
+
     return _ac
-
-# ---------------------------------------------------------------------------
-# Discord bot setup
-# ---------------------------------------------------------------------------
-intents = discord.Intents.default()
-
-TEST_GUILD = None
-if "TEST_GUILD_ID" in os.environ:
-    try:
-        TEST_GUILD = discord.Object(int(os.environ["TEST_GUILD_ID"]))
-    except ValueError:
-        print("TEST_GUILD_ID env var must be an integer guild id")
-
-class GalaxyBot(commands.Bot):
-    def __init__(self):
-        super().__init__(command_prefix="!", intents=intents, help_command=None)
-
-    async def setup_hook(self):
-        if TEST_GUILD is not None:
-            self.tree.copy_global_to(guild=TEST_GUILD)
-            await self.tree.sync(guild=TEST_GUILD)
-            print(f"Commands synced to test guild {TEST_GUILD.id}")
-        else:
-            await self.tree.sync()
-            print("Global slash‑commands synced (first time can take up to an hour)")
-
-bot = GalaxyBot()
 
 # ---------------------------------------------------------------------------
 # Slash commands
@@ -145,90 +192,97 @@ bot = GalaxyBot()
 @bot.tree.command(description="Create a new alliance entry.")
 @app_commands.describe(name="Alliance name")
 async def addalliance(inter: discord.Interaction, name: str):
-    k = key(name)
-    if k in alliances:
-        await respond(inter, f"Alliance **{name}** already exists.")
+    if await alliance_exists(name):
+        await inter.response.send_message("Alliance already exists.", ephemeral=True)
         return
-    alliances[k] = {"display_name": name, "members": {}}
-    save_data(alliances)
-    await respond(inter, f"Alliance **{name}** registered!")
+    async with bot.pool.acquire() as conn:  # type: ignore
+        await conn.execute("INSERT INTO alliances(name) VALUES ($1)", name)
+    await inter.response.send_message(f"Alliance **{name}** registered!", ephemeral=True)
 
 
 @bot.tree.command(description="Add a member to an alliance.")
 @app_commands.autocomplete(alliance=alliance_ac)
 @app_commands.describe(alliance="Alliance name", member="Member name")
 async def addmember(inter: discord.Interaction, alliance: str, member: str):
-    a = get_alliance(alliance)
-    mk = key(member)
-    if mk in a["members"]:
-        await respond(inter, f"{member} already exists in {a['display_name']}.")
+    if not await alliance_exists(alliance):
+        await inter.response.send_message("Alliance not found.", ephemeral=True)
         return
-    a["members"][mk] = {"display_name": member, "colonies": []}
-    save_data(alliances)
-    await respond(inter, f"Member {member} added.")
+    if await member_exists(alliance, member):
+        await inter.response.send_message("Member already exists.", ephemeral=True)
+        return
+    async with bot.pool.acquire() as conn:  # type: ignore
+        await conn.execute(
+            "INSERT INTO members(alliance, member) VALUES ($1, $2)", alliance, member
+        )
+    await inter.response.send_message("Member added.", ephemeral=True)
 
 
-@bot.tree.command(description="Add a colony coordinate to a member (max 11).")
+@bot.tree.command(description="Add a colony coordinate (max 11 per member).")
 @app_commands.autocomplete(alliance=alliance_ac, member=member_ac_factory("alliance"))
-@app_commands.describe(alliance="Alliance", member="Member", x="X coord", y="Y coord")
-async def addcolony(inter: discord.Interaction, alliance: str, member: str, x: int, y: int):
-    a = get_alliance(alliance)
-    m = get_member(a, member)
-    if len(m["colonies"]) >= MAX_COLONIES:
-        await respond(inter, f"{m['display_name']} already has {MAX_COLONIES} colonies recorded.")
+@app_commands.describe(alliance="Alliance", member="Member", x="X", y="Y")
+async def addcolony(
+    inter: discord.Interaction,
+    alliance: str,
+    member: str,
+    x: int,
+    y: int,
+):
+    if not await member_exists(alliance, member):
+        await inter.response.send_message("Member not found.", ephemeral=True)
         return
-    m["colonies"].append({"x": x, "y": y})
-    save_data(alliances)
-    await respond(inter, f"Colony {x},{y} added for {m['display_name']} ({len(m['colonies'])}/{MAX_COLONIES}).")
+    if await colony_count(alliance, member) >= MAX_COLONIES:
+        await inter.response.send_message("Max 11 colonies reached.", ephemeral=True)
+        return
+    async with bot.pool.acquire() as conn:  # type: ignore
+        await conn.execute(
+            "INSERT INTO colonies(alliance, member, x, y) VALUES ($1,$2,$3,$4)",
+            alliance,
+            member,
+            x,
+            y,
+        )
+    await inter.response.send_message("Colony added.", ephemeral=True)
 
 
-@bot.tree.command(description="Show an alliance’s members and colonies.")
+@bot.tree.command(description="Show an alliance’s members & colonies.")
 @app_commands.autocomplete(alliance=alliance_ac)
 async def show(inter: discord.Interaction, alliance: str):
-    a = get_alliance(alliance)
-    embed = discord.Embed(title=a["display_name"], color=discord.Color.blue())
-    if not a["members"]:
+    if not await alliance_exists(alliance):
+        await inter.response.send_message("Alliance not found.", ephemeral=True)
+        return
+    members = await get_members_with_colonies(alliance)
+    embed = discord.Embed(title=alliance, color=discord.Color.blue())
+    if not members:
         embed.description = "No members recorded."
     else:
-        for m in a["members"].values():
-            colonies = ", ".join(f"{c['x']},{c['y']}" for c in m["colonies"]) or "None"
-            embed.add_field(name=f"{m['display_name']} ({len(m['colonies'])}/{MAX_COLONIES})", value=colonies, inline=False)
+        for name, count, coords in members:
+            coord_str = ", ".join(f"{x},{y}" for x, y in coords) or "None"
+            embed.add_field(
+                name=f"{name} ({count}/{MAX_COLONIES})",
+                value=coord_str,
+                inline=False,
+            )
     await inter.response.send_message(embed=embed, ephemeral=False)
 
 
 @bot.tree.command(description="List all alliances.")
 async def list(inter: discord.Interaction):
-    if not alliances:
-        await respond(inter, "No alliances recorded.")
+    names = await all_alliances()
+    if not names:
+        await inter.response.send_message("No alliances recorded.", ephemeral=True)
         return
-    msg = "\n".join(f"- {a['display_name']}" for a in alliances.values())
-    await inter.response.send_message(f"All Alliances ({len(alliances)})\n{msg}", ephemeral=False)
+    await inter.response.send_message(
+        "\n".join(f"- {n}" for n in names), ephemeral=False
+    )
 
 
 @bot.tree.command(description="Delete an alliance (admin only).")
 @app_commands.checks.has_permissions(administrator=True)
 @app_commands.autocomplete(alliance=alliance_ac)
 async def reset(inter: discord.Interaction, alliance: str):
-    k = key(alliance)
-    if k not in alliances:
-        await respond(inter, f"Alliance {alliance} not found.")
+    if not await alliance_exists(alliance):
+        await inter.response.send_message("Alliance not found.", ephemeral=True)
         return
-    del alliances[k]
-    save_data(alliances)
-    await respond(inter, f"Alliance {alliance} deleted.")
-
-@reset.error
-async def reset_error(inter: discord.Interaction, error: app_commands.AppCommandError):
-    if isinstance(error, app_commands.errors.MissingPermissions):
-        await respond(inter, "Administrator permission required.")
-    else:
-        raise error
-
-# ---------------------------------------------------------------------------
-# Run bot
-# ---------------------------------------------------------------------------
-TOKEN = os.environ.get("DISCORD_BOT_TOKEN")
-if not TOKEN:
-    raise RuntimeError("Set the DISCORD_BOT_TOKEN env var.")
-
-bot.run(TOKEN)
+    async with bot.pool.acquire() as conn:  # type: ignore
+        await conn.execute("DELETE FROM alliances WHERE name=$1", alliance)
+    await inter.response.send
