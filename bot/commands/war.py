@@ -15,10 +15,71 @@ from ..db import (
 )
 from ..views import WarView
 
+async def _render_war(inter: discord.Interaction):
+    """
+    Internal helper: fetch current war, build embed + WarView,
+    then send via response or followup exactly once.
+    """
+    guild_id = str(inter.guild_id)
+    bot = inter.client
+    pool = bot.pool
 
-# ─────────────────────────────────────────────────────────────────────────────
-# COG: War commands (/attack, /war, /endwar)
-# ─────────────────────────────────────────────────────────────────────────────
+    # 1) Fetch war
+    war = await get_current_war(pool, guild_id)
+    if not war:
+        if not inter.response.is_done():
+            return await inter.response.send_message(
+                "❌ No war in progress.", ephemeral=True
+            )
+        else:
+            return await inter.followup.send(
+                "❌ No war in progress.", ephemeral=True
+            )
+
+    enemy = war["enemy_alliance"]
+    own   = await get_active_alliance(pool, guild_id)
+
+    # 2) Calculate cooldowns
+    async with pool.acquire() as conn:
+        A = await conn.fetchval("SELECT COUNT(*) FROM members WHERE alliance=$1", own)
+        E = await conn.fetchval("SELECT COUNT(*) FROM members WHERE alliance=$1", enemy)
+    ratio_enemy = max(E / A, 1)
+    ratio_you   = max(A / E, 1)
+    T_enemy = round(4 * ratio_enemy)
+    T_you   = round(4 * ratio_you)
+
+    # 3) Calculate warpoints
+    async with pool.acquire() as conn:
+        main_e = await conn.fetch("SELECT main_sb FROM members WHERE alliance=$1", enemy)
+        col_e  = await conn.fetch("SELECT starbase FROM colonies WHERE alliance=$1", enemy)
+        main_o = await conn.fetch("SELECT main_sb FROM members WHERE alliance=$1", own)
+        col_o  = await conn.fetch("SELECT starbase FROM colonies WHERE alliance=$1", own)
+    wp_map = {1:100,2:200,3:300,4:400,5:600,6:1000,7:1500,8:2000,9:2500}
+    own_wp   = sum(wp_map.get(r["main_sb"],0)    for r in main_e) + sum(wp_map.get(r["starbase"],0) for r in col_e)
+    enemy_wp = sum(wp_map.get(r["main_sb"],0)    for r in main_o) + sum(wp_map.get(r["starbase"],0) for r in col_o)
+
+    # 4) Build embed
+    embed = discord.Embed(
+        title=f"War! **{own}** vs **{enemy}**",
+        color=discord.Color.red()
+    )
+    embed.add_field(name="⚔️ Attacking cooldown", value=f"{T_enemy} hours", inline=True)
+    embed.add_field(name="🛡️ Defending cooldown", value=f"{T_you} hours", inline=True)
+    embed.add_field(name="\u200b", value="\u200b", inline=False)
+    embed.add_field(name="⭐ WP/Raid", value=f"{own_wp:,}", inline=True)
+    embed.add_field(name="★ Enemy WP/Raid", value=f"{enemy_wp:,}", inline=True)
+
+    # 5) Build view
+    view = WarView(guild_id, T_enemy, pool)
+    await view.populate()
+
+    # 6) Send first response or followup
+    if not inter.response.is_done():
+        await inter.response.send_message(embed=embed, view=view)
+    else:
+        await inter.followup.send(embed=embed, view=view)
+
+
 class WarCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -28,7 +89,8 @@ class WarCog(commands.Cog):
         low = current.lower()
         return [
             app_commands.Choice(name=o, value=o)
-            for o in opts if low in o.lower()
+            for o in opts
+            if low in o.lower()
         ][:25]
 
     @app_commands.command(name="attack", description="Start a war against an enemy alliance.")
@@ -36,109 +98,47 @@ class WarCog(commands.Cog):
     async def attack(self, inter: discord.Interaction, target: str):
         guild_id = str(inter.guild_id)
 
-        # Prevent duplicate wars
         if await get_current_war(self.bot.pool, guild_id):
             return await inter.response.send_message(
                 "❌ A war is already in progress! Use `/war` to view it.",
                 ephemeral=True
             )
 
-        # Validate target
         if not await alliance_exists(self.bot.pool, target):
-            return await inter.response.send_message(
-                "❌ Enemy alliance not found.", ephemeral=True
-            )
+            return await inter.response.send_message("❌ Enemy alliance not found.", ephemeral=True)
 
-        # Start the war
         await self.bot.pool.execute(
             "INSERT INTO wars(guild_id, enemy_alliance) VALUES($1,$2)",
             guild_id, target
         )
 
-        # Immediately render and send embed + view
-        guild_id = str(inter.guild_id)
-        pool = self.bot.pool
-        war = await get_current_war(pool, guild_id)
-        enemy = war["enemy_alliance"]
-        own = await get_active_alliance(pool, guild_id)
-
-        # compute cooldowns and wps same as before
-        async with pool.acquire() as conn:
-            A = await conn.fetchval("SELECT COUNT(*) FROM members WHERE alliance=$1", own)
-            E = await conn.fetchval("SELECT COUNT(*) FROM members WHERE alliance=$1", enemy)
-        ratio_enemy = max(E/A,1); T_enemy = round(4*ratio_enemy)
-        ratio_you = max(A/E,1); T_you = round(4*ratio_you)
-        wp_map = {1:100,2:200,3:300,4:400,5:600,6:1000,7:1500,8:2000,9:2500}
-        async with pool.acquire() as conn:
-            main_e = await conn.fetch("SELECT main_sb FROM members WHERE alliance=$1", enemy)
-            col_e  = await conn.fetch("SELECT starbase FROM colonies WHERE alliance=$1", enemy)
-            main_o = await conn.fetch("SELECT main_sb FROM members WHERE alliance=$1", own)
-            col_o  = await conn.fetch("SELECT starbase FROM colonies WHERE alliance=$1", own)
-        own_wp   = sum(wp_map.get(r["main_sb"],0) for r in main_e) + sum(wp_map.get(r["starbase"],0) for r in col_e)
-        enemy_wp = sum(wp_map.get(r["main_sb"],0) for r in main_o) + sum(wp_map.get(r["starbase"],0) for r in col_o)
-
-        embed = discord.Embed(title=f"War! **{own}** vs **{enemy}**", color=discord.Color.red())
-        embed.add_field(name="⚔️ Attacking cooldown", value=f"{T_enemy} hours", inline=True)
-        embed.add_field(name="🛡️ Defending cooldown", value=f"{T_you} hours", inline=True)
-        embed.add_field(name="\u200b", value="\u200b", inline=False)
-        embed.add_field(name="⭐ WP/Raid", value=f"{own_wp:,}", inline=True)
-        embed.add_field(name="★ Enemy WP/Raid", value=f"{enemy_wp:,}", inline=True)
-        view = WarView(guild_id, T_enemy, pool)
-        await view.populate()
-        await inter.response.send_message(embed=embed, view=view)
+        await _render_war(inter)
 
     @app_commands.command(name="war", description="Show the current war and attack timers.")
     async def war(self, inter: discord.Interaction):
         guild_id = str(inter.guild_id)
+
         if not await get_current_war(self.bot.pool, guild_id):
             return await inter.response.send_message(
-                "❌ No war in progress. Start one with `/attack`.", ephemeral=True
+                "❌ No war in progress. Start one with `/attack`.",
+                ephemeral=True
             )
 
-        # defer to allow more time
-        await inter.response.defer()
-
-        pool = self.bot.pool
-        war = await get_current_war(pool, guild_id)
-        enemy = war["enemy_alliance"]
-        own = await get_active_alliance(pool, guild_id)
-
-        async with pool.acquire() as conn:
-            A = await conn.fetchval("SELECT COUNT(*) FROM members WHERE alliance=$1", own)
-            E = await conn.fetchval("SELECT COUNT(*) FROM members WHERE alliance=$1", enemy)
-        ratio_enemy = max(E/A,1); T_enemy = round(4*ratio_enemy)
-        ratio_you = max(A/E,1); T_you = round(4*ratio_you)
-        wp_map = {1:100,2:200,3:300,4:400,5:600,6:1000,7:1500,8:2000,9:2500}
-        async with pool.acquire() as conn:
-            main_e = await conn.fetch("SELECT main_sb FROM members WHERE alliance=$1", enemy)
-            col_e  = await conn.fetch("SELECT starbase FROM colonies WHERE alliance=$1", enemy)
-            main_o = await conn.fetch("SELECT main_sb FROM members WHERE alliance=$1", own)
-            col_o  = await conn.fetch("SELECT starbase FROM colonies WHERE alliance=$1", own)
-        own_wp   = sum(wp_map.get(r["main_sb"],0) for r in main_e) + sum(wp_map.get(r["starbase"],0) for r in col_e)
-        enemy_wp = sum(wp_map.get(r["main_sb"],0) for r in main_o) + sum(wp_map.get(r["starbase"],0) for r in col_o)
-
-        embed = discord.Embed(title=f"War! **{own}** vs **{enemy}**", color=discord.Color.red())
-        embed.add_field(name="⚔️ Attacking cooldown", value=f"{T_enemy} hours", inline=True)
-        embed.add_field(name="🛡️ Defending cooldown", value=f"{T_you} hours", inline=True)
-        embed.add_field(name="\u200b", value="\u200b", inline=False)
-        embed.add_field(name="⭐ WP/Raid", value=f"{own_wp:,}", inline=True)
-        embed.add_field(name="★ Enemy WP/Raid", value=f"{enemy_wp:,}", inline=True)
-        view = WarView(guild_id, T_enemy, pool)
-        await view.populate()
-        # followup after defer
-        await inter.followup.send(embed=embed, view=view)
+        await _render_war(inter)
 
     @app_commands.command(name="endwar", description="Password-protected: end the current war.")
     async def endwar(self, inter: discord.Interaction, password: str):
         guild_id = str(inter.guild_id)
+
         if password != self.bot.ADMIN_PASS:
             return await inter.response.send_message("❌ Bad password.", ephemeral=True)
+
         if not await get_current_war(self.bot.pool, guild_id):
             return await inter.response.send_message("❌ No war to end.", ephemeral=True)
+
         await self.bot.pool.execute("DELETE FROM wars WHERE guild_id=$1", guild_id)
         return await inter.response.send_message("✅ War ended.", ephemeral=True)
 
 
 async def setup(bot: commands.Bot):
-    await bot.add_cog(WarCog(bot))(bot: commands.Bot):
     await bot.add_cog(WarCog(bot))
