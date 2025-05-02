@@ -113,6 +113,7 @@ class MemberCog(commands.Cog):
         old: str,
         new: str
     ):
+        # Here we autocomplete `member` for the old name, so we must use that parameter name.
         if not await member_exists(self.bot.pool, alliance, old):
             return await inter.response.send_message("❌ Original not found.", ephemeral=True)
         if await member_exists(self.bot.pool, alliance, new):
