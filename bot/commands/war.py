@@ -17,20 +17,20 @@ from ..views import WarView
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# INTERNAL HELPERS
+# INTERNAL: build & send the war embed + interactive buttons
 # ─────────────────────────────────────────────────────────────────────────────
-
-async def _render_war(inter: discord.Interaction, pool: discord.ext.commands.Bot.pool):
+async def _render_war(inter: discord.Interaction):
     """
     Fetches the current war data, builds the embed + interactive WarView,
     and sends it exactly once via inter.response.send_message.
     """
     guild_id = str(inter.guild_id)
+    bot = inter.client
+    pool = bot.pool
 
     # 1) Get war row
     war = await get_current_war(pool, guild_id)
     if not war:
-        # No war exists
         return await inter.response.send_message(
             "❌ No war in progress.", ephemeral=True
         )
@@ -66,13 +66,10 @@ async def _render_war(inter: discord.Interaction, pool: discord.ext.commands.Bot
             "SELECT starbase FROM colonies WHERE alliance=$1", own
         )
 
-    wp_map = {
-        1: 100, 2: 200, 3: 300, 4: 400, 5: 600,
-        6: 1000, 7: 1500, 8: 2000, 9: 2500
-    }
-    own_wp   = sum(wp_map.get(r["main_sb"], 0)    for r in main_e) + \
+    wp_map = {1:100,2:200,3:300,4:400,5:600,6:1000,7:1500,8:2000,9:2500}
+    own_wp   = sum(wp_map.get(r["main_sb"], 0) for r in main_e) + \
                sum(wp_map.get(r["starbase"], 0) for r in col_e)
-    enemy_wp = sum(wp_map.get(r["main_sb"], 0)    for r in main_o) + \
+    enemy_wp = sum(wp_map.get(r["main_sb"], 0) for r in main_o) + \
                sum(wp_map.get(r["starbase"], 0) for r in col_o)
 
     # 4) Build the embed with two inline fields per row
@@ -80,28 +77,11 @@ async def _render_war(inter: discord.Interaction, pool: discord.ext.commands.Bot
         title=f"War! **{own}** vs **{enemy}**",
         color=discord.Color.red()
     )
-    embed.add_field(
-        name="⚔️ Attacking cooldown",
-        value=f"{T_enemy} hours",
-        inline=True
-    )
-    embed.add_field(
-        name="🛡️ Defending cooldown",
-        value=f"{T_you} hours",
-        inline=True
-    )
-    # force newline
+    embed.add_field(name="⚔️ Attacking cooldown", value=f"{T_enemy} hours", inline=True)
+    embed.add_field(name="🛡️ Defending cooldown", value=f"{T_you} hours", inline=True)
     embed.add_field(name="\u200b", value="\u200b", inline=False)
-    embed.add_field(
-        name="⭐ WP/Raid",
-        value=f"{own_wp:,}",
-        inline=True
-    )
-    embed.add_field(
-        name="★ Enemy WP/Raid",
-        value=f"{enemy_wp:,}",
-        inline=True
-    )
+    embed.add_field(name="⭐ WP/Raid", value=f"{own_wp:,}", inline=True)
+    embed.add_field(name="★ Enemy WP/Raid", value=f"{enemy_wp:,}", inline=True)
 
     # 5) Create and populate the interactive button view
     view = WarView(guild_id, T_enemy, pool)
@@ -114,7 +94,6 @@ async def _render_war(inter: discord.Interaction, pool: discord.ext.commands.Bot
 # ─────────────────────────────────────────────────────────────────────────────
 # COG: War commands (/attack, /war, /endwar)
 # ─────────────────────────────────────────────────────────────────────────────
-
 class WarCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -122,15 +101,12 @@ class WarCog(commands.Cog):
     async def target_autocomplete(
         self, inter: discord.Interaction, current: str
     ) -> list[app_commands.Choice[str]]:
-        """
-        Autocomplete callback for the `target` parameter of /attack.
-        """
         opts = await all_alliances(self.bot.pool)
         low = current.lower()
         return [
-            app_commands.Choice(name=a, value=a)
-            for a in opts
-            if low in a.lower()
+            app_commands.Choice(name=o, value=o)
+            for o in opts
+            if low in o.lower()
         ][:25]
 
     @app_commands.command(
@@ -143,50 +119,36 @@ class WarCog(commands.Cog):
         inter: discord.Interaction,
         target: str
     ):
-        """
-        /attack <target> — begins a new war if none is active,
-        then renders the war page with timers, WP stats, and buttons.
-        """
         guild_id = str(inter.guild_id)
 
-        # Prevent duplicate wars
         if await get_current_war(self.bot.pool, guild_id):
             return await inter.response.send_message(
-                "❌ A war is already in progress! Use `/war` to view it.",
-                ephemeral=True
+                "❌ A war is already in progress! Use `/war` to view it.", ephemeral=True
             )
 
-        # Validate target alliance
         if not await alliance_exists(self.bot.pool, target):
             return await inter.response.send_message(
                 "❌ Enemy alliance not found.", ephemeral=True
             )
 
-        # Insert war row
         await self.bot.pool.execute(
             "INSERT INTO wars(guild_id, enemy_alliance) VALUES($1,$2)",
             guild_id, target
         )
 
-        # Render
-        await _render_war(inter, self.bot.pool)
+        await _render_war(inter)
 
     @app_commands.command(
         name="war",
         description="Show the current war and attack timers."
     )
     async def war(self, inter: discord.Interaction):
-        """
-        /war — re-displays the active war page.
-        """
         guild_id = str(inter.guild_id)
         if not await get_current_war(self.bot.pool, guild_id):
             return await inter.response.send_message(
-                "❌ No war in progress. Start one with `/attack`.",
-                ephemeral=True
+                "❌ No war in progress. Start one with `/attack`.", ephemeral=True
             )
-
-        await _render_war(inter, self.bot.pool)
+        await _render_war(inter)
 
     @app_commands.command(
         name="endwar",
@@ -197,29 +159,20 @@ class WarCog(commands.Cog):
         inter: discord.Interaction,
         password: str
     ):
-        """
-        /endwar <password> — ends the current war (admin only).
-        """
         guild_id = str(inter.guild_id)
 
         if password != self.bot.ADMIN_PASS:
-            return await inter.response.send_message(
-                "❌ Bad password.", ephemeral=True
-            )
+            return await inter.response.send_message("❌ Bad password.", ephemeral=True)
 
         if not await get_current_war(self.bot.pool, guild_id):
             return await inter.response.send_message(
                 "❌ No war to end.", ephemeral=True
             )
 
-        # Delete war row
         await self.bot.pool.execute(
             "DELETE FROM wars WHERE guild_id=$1", guild_id
         )
-
-        await inter.response.send_message(
-            "✅ War ended.", ephemeral=True
-        )
+        await inter.response.send_message("✅ War ended.", ephemeral=True)
 
 
 async def setup(bot: commands.Bot):
