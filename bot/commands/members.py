@@ -105,15 +105,14 @@ class MemberCog(commands.Cog):
         description="Rename a member (keeps colonies)."
     )
     @app_commands.autocomplete(alliance=alliance_autocomplete)
-    @app_commands.autocomplete(member=member_autocomplete)
+    @app_commands.autocomplete(old=member_autocomplete)  # ← here we autocomplete 'old', not 'member'
     async def renamemember(
         self,
         inter: discord.Interaction,
         alliance: str,
-        old: str,
-        new: str
+        old: str,   # the original member name
+        new: str    # the new member name
     ):
-        # Here we autocomplete `member` for the old name, so we must use that parameter name.
         if not await member_exists(self.bot.pool, alliance, old):
             return await inter.response.send_message("❌ Original not found.", ephemeral=True)
         if await member_exists(self.bot.pool, alliance, new):
