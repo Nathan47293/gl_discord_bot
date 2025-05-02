@@ -1,20 +1,60 @@
 # bot/commands/colonies.py
+import discord
 from discord import app_commands
 from discord.ext import commands
 
-from ..db import member_exists, colony_count, get_members_with_colonies
+from ..db import (
+    member_exists,
+    colony_count,
+    get_members_with_colonies,
+    all_alliances,
+    MAX_COLONIES,
+    MAX_MEMBERS,
+)
 
 class ColonyCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @app_commands.command(name="addcolony", description="Add a colony coordinate (max 11 per member).")
-    @app_commands.autocomplete(alliance=lambda inter, cur: [
-        app_commands.Choice(name=n, value=n)
-        for n in (await all_alliances(self.bot.pool))
-        if cur.lower() in n.lower()
-    ])
-    async def addcolony(self, inter, alliance: str, member: str, starbase: int, x: int, y: int):
+    async def alliance_autocomplete(self, inter: discord.Interaction, current: str):
+        choices = await all_alliances(self.bot.pool)
+        low = current.lower()
+        return [
+            app_commands.Choice(name=a, value=a)
+            for a in choices
+            if low in a.lower()
+        ][:25]
+
+    async def member_autocomplete(self, inter: discord.Interaction, current: str):
+        alliance = inter.namespace.alliance
+        if not alliance:
+            return []
+        rows = await self.bot.pool.fetch(
+            "SELECT member FROM members WHERE alliance=$1 ORDER BY member",
+            alliance
+        )
+        low = current.lower()
+        return [
+            app_commands.Choice(name=r["member"], value=r["member"])
+            for r in rows
+            if low in r["member"].lower()
+        ][:25]
+
+    @app_commands.command(
+        name="addcolony",
+        description="Add a colony coordinate (max 11 per member)."
+    )
+    @app_commands.autocomplete(alliance=alliance_autocomplete)
+    @app_commands.autocomplete(member=member_autocomplete)
+    async def addcolony(
+        self,
+        inter: discord.Interaction,
+        alliance: str,
+        member: str,
+        starbase: app_commands.Range[int, 1, 9],
+        x: int,
+        y: int
+    ):
         if not await member_exists(self.bot.pool, alliance, member):
             return await inter.response.send_message("❌ Member not found.", ephemeral=True)
         if await colony_count(self.bot.pool, alliance, member) >= MAX_COLONIES:
@@ -25,13 +65,21 @@ class ColonyCog(commands.Cog):
         )
         await inter.response.send_message(f"✅ Colony SB{starbase} ({x},{y}) added.", ephemeral=True)
 
-    @app_commands.command(name="removecolony", description="Remove a specific colony.")
-    @app_commands.autocomplete(alliance=lambda inter, cur: [
-        app_commands.Choice(name=n, value=n)
-        for n in (await all_alliances(self.bot.pool))
-        if cur.lower() in n.lower()
-    ])
-    async def removecolony(self, inter, alliance: str, member: str, starbase: int, x: int, y: int):
+    @app_commands.command(
+        name="removecolony",
+        description="Remove a specific colony."
+    )
+    @app_commands.autocomplete(alliance=alliance_autocomplete)
+    @app_commands.autocomplete(member=member_autocomplete)
+    async def removecolony(
+        self,
+        inter: discord.Interaction,
+        alliance: str,
+        member: str,
+        starbase: app_commands.Range[int, 1, 9],
+        x: int,
+        y: int
+    ):
         if not await member_exists(self.bot.pool, alliance, member):
             return await inter.response.send_message("❌ Member not found.", ephemeral=True)
         res = await self.bot.pool.execute(
@@ -42,15 +90,16 @@ class ColonyCog(commands.Cog):
             return await inter.response.send_message("❌ No such colony.", ephemeral=True)
         await inter.response.send_message(f"✅ Removed SB{starbase} ({x},{y}).", ephemeral=True)
 
-    @app_commands.command(name="show", description="Show an alliance’s members & colonies.")
-    @app_commands.autocomplete(alliance=lambda inter, cur: [
-        app_commands.Choice(name=n, value=n)
-        for n in (await all_alliances(self.bot.pool))
-        if cur.lower() in n.lower()
-    ])
-    async def show(self, inter, alliance: str):
-        if not await alliance_exists(self.bot.pool, alliance):
-            return await inter.response.send_message("❌ Alliance not found.", ephemeral=True)
+    @app_commands.command(
+        name="show",
+        description="Show an alliance’s members & colonies."
+    )
+    @app_commands.autocomplete(alliance=alliance_autocomplete)
+    async def show(
+        self,
+        inter: discord.Interaction,
+        alliance: str
+    ):
         data = await get_members_with_colonies(self.bot.pool, alliance)
         embed = discord.Embed(
             title=f"{alliance} ({len(data)}/{MAX_MEMBERS} members)",

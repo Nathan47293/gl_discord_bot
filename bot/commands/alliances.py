@@ -1,4 +1,5 @@
 # bot/commands/alliances.py
+import discord
 from discord import app_commands
 from discord.ext import commands
 
@@ -9,21 +10,29 @@ class AllianceCog(commands.Cog):
         self.bot = bot
 
     @app_commands.command(name="addalliance", description="Create a new alliance.")
-    async def addalliance(self, inter, name: str):
+    async def addalliance(self, inter: discord.Interaction, name: str):
         if await alliance_exists(self.bot.pool, name):
             return await inter.response.send_message("❌ Already exists.", ephemeral=True)
         await self.bot.pool.execute("INSERT INTO alliances(name) VALUES($1)", name)
         await inter.response.send_message(f"✅ Alliance **{name}** created.", ephemeral=True)
 
     @app_commands.command(name="list", description="List all alliances.")
-    async def list_all(self, inter):
+    async def list_all(self, inter: discord.Interaction):
         opts = await all_alliances(self.bot.pool)
         if not opts:
             return await inter.response.send_message("❌ No alliances recorded.", ephemeral=True)
         await inter.response.send_message("\n".join(f"- {o}" for o in opts))
 
-    @app_commands.command(name="setalliance", description="Password-protected: set this guild’s alliance.")
-    async def setalliance(self, inter, alliance: str, password: str):
+    @app_commands.command(
+        name="setalliance",
+        description="Password-protected: set this guild’s alliance."
+    )
+    async def setalliance(
+        self,
+        inter: discord.Interaction,
+        alliance: str,
+        password: str
+    ):
         if password != ADMIN_PASS:
             return await inter.response.send_message("❌ Bad password.", ephemeral=True)
         if not await alliance_exists(self.bot.pool, alliance):
@@ -31,8 +40,16 @@ class AllianceCog(commands.Cog):
         await set_active_alliance(self.bot.pool, str(inter.guild_id), alliance)
         await inter.response.send_message(f"✅ Active alliance set to **{alliance}**.", ephemeral=True)
 
-    @app_commands.command(name="reset", description="Password-protected: delete an alliance.")
-    async def reset(self, inter, alliance: str, password: str):
+    @app_commands.command(
+        name="reset",
+        description="Password-protected: delete an alliance."
+    )
+    async def reset(
+        self,
+        inter: discord.Interaction,
+        alliance: str,
+        password: str
+    ):
         if password != ADMIN_PASS:
             return await inter.response.send_message("❌ Bad password.", ephemeral=True)
         if not await alliance_exists(self.bot.pool, alliance):
