@@ -1,4 +1,3 @@
-# bot/commands/alliances.py
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -6,11 +5,16 @@ from discord.ext import commands
 from ..db import alliance_exists, all_alliances, set_active_alliance, ADMIN_PASS
 
 class AllianceCog(commands.Cog):
+    """Cog for managing alliance data: create, list, set active, reset."""
     def __init__(self, bot):
         self.bot = bot
 
     @app_commands.command(name="addalliance", description="Create a new alliance.")
     async def addalliance(self, inter: discord.Interaction, name: str):
+        """
+        /addalliance name
+        Creates a new alliance record if it doesn't already exist.
+        """
         if await alliance_exists(self.bot.pool, name):
             return await inter.response.send_message("❌ Already exists.", ephemeral=True)
         await self.bot.pool.execute("INSERT INTO alliances(name) VALUES($1)", name)
@@ -18,6 +22,10 @@ class AllianceCog(commands.Cog):
 
     @app_commands.command(name="list", description="List all alliances.")
     async def list_all(self, inter: discord.Interaction):
+        """
+        /list
+        Displays a list of all known alliances.
+        """
         opts = await all_alliances(self.bot.pool)
         if not opts:
             return await inter.response.send_message("❌ No alliances recorded.", ephemeral=True)
@@ -33,29 +41,13 @@ class AllianceCog(commands.Cog):
         alliance: str,
         password: str
     ):
+        """
+        /setalliance alliance password
+        Sets the active alliance for this guild (admin only).
+        """
         if password != ADMIN_PASS:
             return await inter.response.send_message("❌ Bad password.", ephemeral=True)
         if not await alliance_exists(self.bot.pool, alliance):
             return await inter.response.send_message("❌ Alliance not found.", ephemeral=True)
         await set_active_alliance(self.bot.pool, str(inter.guild_id), alliance)
-        await inter.response.send_message(f"✅ Active alliance set to **{alliance}**.", ephemeral=True)
-
-    @app_commands.command(
-        name="reset",
-        description="Password-protected: delete an alliance."
-    )
-    async def reset(
-        self,
-        inter: discord.Interaction,
-        alliance: str,
-        password: str
-    ):
-        if password != ADMIN_PASS:
-            return await inter.response.send_message("❌ Bad password.", ephemeral=True)
-        if not await alliance_exists(self.bot.pool, alliance):
-            return await inter.response.send_message("❌ Alliance not found.", ephemeral=True)
-        await self.bot.pool.execute("DELETE FROM alliances WHERE name=$1", alliance)
-        await inter.response.send_message("✅ Alliance deleted.", ephemeral=True)
-
-async def setup(bot):
-    await bot.add_cog(AllianceCog(bot))
+        await inter.response.send_message(f"✅ Active alliance set to **{alliance}****, ephemeral=True)
