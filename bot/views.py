@@ -26,6 +26,7 @@ class WarView(ui.View):
         self.cd = cooldown_hours      # Store cooldown duration
         self.pool = pool              # DB pool for fetching records
         self._countdown_task = None
+        self.current_page = 0
 
     async def populate(self):
         try:
