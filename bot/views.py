@@ -29,26 +29,26 @@ class WarView(ui.View):
 
     async def populate(self):
         try:
-            # Retrieve current war row
-            war = await get_current_war(self.pool, self.guild_id)
-            if not war:
-                raise ValueError("No active war found for this guild.")
-
-            # Fetch enemy alliance members sorted by main starbase descending
-            members_data = await self.pool.fetch(
-                "SELECT member, main_sb FROM members WHERE alliance=$1 ORDER BY main_sb DESC",
-                war["enemy_alliance"]
-            )
-            now = datetime.datetime.now(datetime.timezone.utc)
-
-            members = []
-            for rec in members_data:
-                m_name = rec["member"]
-                last = await self.pool.fetchval(
-                    "SELECT last_attack FROM war_attacks WHERE guild_id=$1 AND member=$2",
-                    self.guild_id, m_name
+            # Cache members list for faster pagination.
+            if not hasattr(self, "members"):
+                war = await get_current_war(self.pool, self.guild_id)
+                if not war:
+                    raise ValueError("No active war found for this guild.")
+                members_data = await self.pool.fetch(
+                    "SELECT member, main_sb FROM members WHERE alliance=$1 ORDER BY main_sb DESC",
+                    war["enemy_alliance"]
                 )
-                members.append({"name": m_name, "last": last})
+                now = datetime.datetime.now(datetime.timezone.utc)
+                self.members = []
+                for rec in members_data:
+                    m_name = rec["member"]
+                    last = await self.pool.fetchval(
+                        "SELECT last_attack FROM war_attacks WHERE guild_id=$1 AND member=$2",
+                        self.guild_id, m_name
+                    )
+                    self.members.append({"name": m_name, "last": last})
+            now = datetime.datetime.now(datetime.timezone.utc)
+            members = self.members
 
             # Set up pagination: 2 columns x 4 rows = 8 members per page
             members_per_column = 4
