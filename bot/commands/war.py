@@ -114,23 +114,20 @@ class WarCog(commands.Cog):
          - Your active alliance is set.
          - A war record exists for this guild.
         """
+        await inter.response.defer()
         # Ensure your alliance is set.
         own = await get_active_alliance(self.bot.pool, str(inter.guild_id))
         if not own:
-            return await inter.response.send_message(
-                "❌ Set your alliance first with /setalliance.", ephemeral=True
-            )
+            return await inter.followup.send("❌ Set your alliance first with /setalliance.", ephemeral=True)
         # Retrieve the current war record.
         war_record = await get_current_war(self.bot.pool, str(inter.guild_id))
         if not war_record:
-            return await inter.response.send_message(
-                "❌ No active war.", ephemeral=True
-            )
+            return await inter.followup.send("❌ No active war.", ephemeral=True)
         # Use the enemy alliance from the war record.
         target = war_record["enemy_alliance"]
 
         embed, view = await self.get_war_embed_and_view(str(inter.guild_id), own, target)
-        await inter.response.send_message(embed=embed, view=view)
+        await inter.followup.send(embed=embed, view=view)
 
     @app_commands.command(
         name="endwar",
