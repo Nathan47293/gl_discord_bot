@@ -13,6 +13,7 @@ class WarView(ui.View):
     Each button tracks the "attacked" cooldown, disabling itself and showing a timer
     if the member has been recently attacked.
     """
+    # Updated __init__ to remove attacker parameter and add a task handle
     def __init__(self, guild_id: str, cooldown_hours: int, pool):
         """
         :param guild_id: Discord guild (server) ID as string
@@ -24,6 +25,7 @@ class WarView(ui.View):
         self.guild_id = guild_id      # Store guild context
         self.cd = cooldown_hours      # Store cooldown duration
         self.pool = pool              # DB pool for fetching records
+        self._countdown_task = None
 
     async def populate(self):
         """
@@ -54,16 +56,25 @@ class WarView(ui.View):
 
             for rec in members:
                 member_name = rec["member"]
+                # Fetch individual enemy's last_attack timestamp
                 last = await self.pool.fetchval(
-                    "SELECT last_attack FROM war_attacks"
-                    " WHERE guild_id=$1 AND member=$2",
+                    "SELECT last_attack FROM war_attacks WHERE guild_id=$1 AND member=$2",
                     self.guild_id, member_name
                 )
 
-                # Compute remaining cooldown
-                remaining = max(0, self.cd * 3600 - (now - last).total_seconds()) if last else 0
-                hours_left = math.ceil(remaining / 3600)
-                label = f"{hours_left}h" if remaining > 0 else "Attacked"
+                if last:
+                    remaining = max(0, self.cd * 3600 - (now - last).total_seconds())
+                    if remaining >= 3600:
+                        hr = int(remaining // 3600)
+                        mn = int((remaining % 3600) // 60)
+                        # If minutes equals 0, display as full cooldown
+                        label = f"{self.cd}hr" if mn == 0 else f"{hr}hr {mn}min"
+                    else:
+                        mn = int(math.ceil(remaining/60))
+                        label = f"{mn}min"
+                else:
+                    remaining = 0
+                    label = "Attack"
                 style = ButtonStyle.danger if remaining > 0 else ButtonStyle.primary
                 disabled = remaining > 0
 
@@ -75,13 +86,17 @@ class WarView(ui.View):
                     disabled=disabled
                 )
 
+                # If on cooldown, attach the last_attack timestamp for live updates
+                if last:
+                    btn.last_attack = last
+
                 # Attach a unique callback
                 btn.callback = self.create_callback(member_name)
                 self.add_item(btn)
         except Exception as e:
             print(f"Error populating WarView: {e}")
 
-    # Revised callback factory method with proper signature
+    # Updated callback to update only the pressed button and attach new last_attack timestamp
     def create_callback(self, member):
         """
         Factory function to create a unique callback for each button.
@@ -92,6 +107,7 @@ class WarView(ui.View):
         """
         async def callback(interaction):
             try:
+                now = datetime.datetime.now(datetime.timezone.utc)
                 # Upsert the last_attack time in war_attacks
                 await self.pool.execute(
                     """
@@ -102,10 +118,12 @@ class WarView(ui.View):
                     """,
                     self.guild_id, member
                 )
-                # Update the button state
+                # Update only the pressed button and store its last_attack for live countdown
                 for item in self.children:
                     if item.custom_id == f"war_atk:{member}":
-                        item.label = f"{self.cd}h"
+                        item.last_attack = now
+                        # Immediately show full cooldown in "Xhr 0min" format.
+                        item.label = f"{self.cd}hr"
                         item.style = ButtonStyle.danger
                         item.disabled = True
                         break
@@ -113,3 +131,41 @@ class WarView(ui.View):
             except Exception as e:
                 await interaction.response.send_message(f"Error: {e}", ephemeral=True)
         return callback
+
+    # New method to update all buttons live with their remaining cooldown
+    async def start_countdown(self, message):
+        import asyncio
+        while not self.is_finished():
+            updated = False
+            now = datetime.datetime.now(datetime.timezone.utc)
+            for item in self.children:
+                # Only update buttons with an active cooldown
+                if hasattr(item, 'last_attack'):
+                    elapsed = (now - item.last_attack).total_seconds()
+                    remaining = max(0, self.cd * 3600 - elapsed)
+                    if remaining <= 0:
+                        new_label = "Attack"
+                        item.style = ButtonStyle.primary
+                        item.disabled = False
+                        del item.last_attack
+                    else:
+                        if remaining >= 3600:
+                            hr = int(remaining // 3600)
+                            mn = int((remaining % 3600) // 60)
+                            # If minutes equals 0, display as full cooldown.
+                            new_label = f"{self.cd}hr" if mn == 0 else f"{hr}hr {mn}min"
+                        else:
+                            mn = int(math.ceil(remaining/60))
+                            new_label = f"{mn}min"
+                        item.style = ButtonStyle.danger
+                        item.disabled = True
+                    if new_label != item.label:
+                        item.label = new_label
+                        updated = True
+            if updated:
+                try:
+                    await message.edit(view=self)
+                except Exception as e:
+                    print("Error updating view:", e)
+            # Sleep until the next minute boundary to reduce update frequency.
+            await asyncio.sleep(5)
