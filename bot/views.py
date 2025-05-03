@@ -172,8 +172,11 @@ class WarView(ui.View):
                 await interaction.response.defer()
                 self.mode = "colony"
                 self.current_page = 0
-                self.colonies = []   # Force fresh DB lookup for colonies
-                await self.populate()
+                # If colonies are already cached, use them; otherwise, populate.
+                if not self.colonies:
+                    await self.populate()
+                else:
+                    self.rebuild_view()
                 await interaction.edit_original_response(view=self)
             mode_btn.callback = switch_to_colony
         else:
@@ -182,8 +185,10 @@ class WarView(ui.View):
                 await interaction.response.defer()
                 self.mode = "main"
                 self.current_page = 0
-                self.members = []  # Force fresh DB lookup for members
-                await self.populate()
+                if not self.members:
+                    await self.populate()
+                else:
+                    self.rebuild_view()
                 await interaction.edit_original_response(view=self)
             mode_btn.callback = switch_to_main
         items.append(mode_btn)
