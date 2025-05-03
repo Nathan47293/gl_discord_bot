@@ -243,7 +243,7 @@ class WarView(ui.View):
                 attack_btn = ui.Button(
                     label=attack_label,
                     style=style,
-                    custom_id=f"{custom_id_prefix}{idx}",
+                    custom_id=f"{custom_id_prefix}{entry['ident']}",
                     disabled=disabled,
                     row=r+1
                 )
@@ -303,8 +303,7 @@ class WarView(ui.View):
             try:
                 now = datetime.datetime.now(datetime.timezone.utc)
                 for item in self.children:
-                    if item.custom_id.startswith("war_col_atk:"):
-                        # (In practice, store ident in the button to match exactly)
+                    if item.custom_id == f"war_col_atk:{ident}":
                         item.label = "Attacking..."
                         item.style = ButtonStyle.danger
                         item.disabled = True
@@ -320,7 +319,7 @@ class WarView(ui.View):
                     self.guild_id, ident
                 )
                 for item in self.children:
-                    if item.custom_id.startswith("war_col_atk:"):
+                    if item.custom_id == f"war_col_atk:{ident}":
                         item.last_attack = now
                         item.label = f"{self.cd}hr"
                         item.style = ButtonStyle.danger
