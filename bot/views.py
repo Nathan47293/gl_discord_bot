@@ -121,27 +121,20 @@ class WarView(ui.View):
 
             # Rows 1 to members_per_column: build grid of member pairs
             for r in range(members_per_column):
-                # Prepare buttons for one row (each row will have 2 member pairs if available)
-                row_buttons = []
                 for c in range(columns):
                     idx = self.current_page * page_size + (c * members_per_column + r)
                     if idx >= len(members):
                         continue
                     member = members[idx]
-                    # Compute fixed-width member name using left-justification.
-                    if c == 0:
-                        padded_name = member["name"].ljust(self.max_name_length)
-                    else:
-                        # Prepend three EM spaces (U+2003) for a fixed left offset in column 2.
-                        padded_name = "\u2003" * 3 + member["name"]
+                    # Create the name button using the raw member name.
                     name_btn = ui.Button(
-                        label=padded_name,
+                        label=member["name"],
                         style=ButtonStyle.secondary,
                         custom_id=f"label:{member['name']}",
                         disabled=True,
                         row=r+1
                     )
-                    # Compute attack button details based on cooldown
+                    # Compute attack button details based on cooldown (unchanged)
                     if member["last"]:
                         elapsed = (now - member["last"]).total_seconds()
                         remaining = max(0, self.cd * 3600 - elapsed)
@@ -158,7 +151,7 @@ class WarView(ui.View):
                         attack_label = "Attack"
                         disabled = False
                         style = ButtonStyle.primary
-                    # Create an attack button
+                    # Create the attack button.
                     attack_btn = ui.Button(
                         label=attack_label,
                         style=style,
@@ -169,11 +162,8 @@ class WarView(ui.View):
                     if member["last"]:
                         attack_btn.last_attack = member["last"]
                     attack_btn.callback = self.create_callback(member["name"])
-                    # Append both buttons for this member (maintaining order: name then attack)
-                    row_buttons.extend([name_btn, attack_btn])
-                # Add all buttons in the current row (Discord groups by same row index)
-                for btn in row_buttons:
-                    self.add_item(btn)
+                    self.add_item(name_btn)
+                    self.add_item(attack_btn)
 
         except Exception as e:
             print(f"Error populating WarView: {e}")
