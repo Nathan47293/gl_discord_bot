@@ -462,7 +462,7 @@ class WarView(ui.View):
 
     async def start_countdown(self, message):
         import asyncio
-        self.channel = message.channel  # Store channel reference
+        self.channel = message.channel
         await self.channel.send("✨ War tracker initialized - I will notify when targets respawn!")
         
         while not self.is_finished():
@@ -473,19 +473,43 @@ class WarView(ui.View):
                 if not war:
                     return
 
-                # Check for any expired attacks in the database and handle them
-                any_expired = await self.check_for_respawns(now)
-                if any_expired:
-                    # Update the view after handling expired attacks
-                    await message.edit(view=self)
-                    continue
-
                 updated = False
+                expired_members = []
+                
+                # Only check buttons that have timers
                 for item in self.children:
                     if hasattr(item, 'last_attack'):
                         elapsed = (now - item.last_attack).total_seconds()
                         remaining = max(0, self.cd * 3600 - elapsed)
                         
+                        if remaining <= 0:
+                            custom_id = item.custom_id
+                            if custom_id.startswith("war_atk:"):
+                                member = custom_id.replace("war_atk:", "")
+                                await self.channel.send(f"✨ **{member}** has respawned!")
+                                expired_members.append(member)
+                                for m in self.members:
+                                    if m["name"] == member:
+                                        m["last"] = None
+                                        break
+
+                            elif custom_id.startswith("war_col_atk:"):
+                                colony_id = custom_id.replace("war_col_atk:", "")
+                                for colony in self.colonies:
+                                    if colony["ident"] == colony_id:
+                                        await self.channel.send(f"✨ Colony at **SB{colony['starbase']} ({colony['x']},{colony['y']})** has respawned!")
+                                        colony["last"] = None
+                                        expired_members.append(colony_id)
+                                        break
+
+                            item.label = "Attacked"
+                            item.style = ButtonStyle.primary
+                            item.disabled = False
+                            del item.last_attack
+                            updated = True
+                            continue
+
+                        # Update timer display
                         if remaining >= 3600:
                             hr = int(remaining // 3600)
                             mn = int((remaining % 3600) // 60)
@@ -496,14 +520,24 @@ class WarView(ui.View):
                         
                         if new_label != item.label:
                             item.label = new_label
-                            item.style = ButtonStyle.danger
-                            item.disabled = True
                             updated = True
+
+                # Only update DB if we had expirations
+                if expired_members:
+                    await self.pool.execute(
+                        "DELETE FROM war_attacks WHERE guild_id=$1 AND member=ANY($2)",
+                        self.guild_id, expired_members
+                    )
 
                 if updated:
                     await message.edit(view=self)
+                    # Also update any other active views
+                    if hasattr(self, 'parent_cog'):
+                        for view in self.parent_cog.active_views.values():
+                            if view != self:
+                                await view.rebuild_view()
 
             except Exception as e:
-                print(f"Error in countdown loop: {e}")  # Debug log
+                print(f"Error in countdown loop: {e}")
                 
             await asyncio.sleep(5)
