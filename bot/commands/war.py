@@ -40,9 +40,8 @@ class WarCog(commands.Cog):
             E = await conn.fetchval("SELECT COUNT(*) FROM members WHERE alliance=$1", target)
         ratio_enemy = max(E / A, 1)
         ratio_you   = max(A / E, 1)
-        # TEMPORARY: Change 4 hours to 5/60 hours (5 minutes)
-        T_enemy = round((5/60) * ratio_enemy)
-        T_you   = round((5/60) * ratio_you)
+        T_enemy = round(4 * ratio_enemy)  # Back to 4 hours
+        T_you   = round(4 * ratio_you)
         wp_map = {1:100,2:200,3:300,4:400,5:600,6:1000,7:1500,8:2000,9:2500}
         async with self.bot.pool.acquire() as conn:
             main_enemy = await conn.fetch("SELECT main_sb FROM members WHERE alliance=$1", target)

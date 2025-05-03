@@ -333,8 +333,7 @@ class WarView(ui.View):
                 # Only update buttons with an active cooldown
                 if hasattr(item, 'last_attack'):
                     elapsed = (now - item.last_attack).total_seconds()
-                    # TEMPORARY: Convert 5 minutes to seconds (300) instead of hours
-                    remaining = max(0, 300 - elapsed)
+                    remaining = max(0, self.cd * 3600 - elapsed)  # Back to using hours
                     if remaining <= 0:
                         # Find the name/identity of what respawned
                         custom_id = item.custom_id
@@ -354,9 +353,13 @@ class WarView(ui.View):
                         item.disabled = False
                         del item.last_attack
                     else:
-                        # For 5 minute testing, always show minutes
-                        mn = int(math.ceil(remaining/60))
-                        new_label = f"{mn}min"
+                        if remaining >= 3600:
+                            hr = int(remaining // 3600)
+                            mn = int((remaining % 3600) // 60)
+                            new_label = f"{self.cd}hr" if mn == 0 else f"{hr}hr {mn}min"
+                        else:
+                            mn = int(math.ceil(remaining/60))
+                            new_label = f"{mn}min"
                         item.style = ButtonStyle.danger
                         item.disabled = True
                     if new_label != item.label:
