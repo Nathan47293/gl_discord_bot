@@ -340,11 +340,11 @@ class WarView(ui.View):
                         if custom_id.startswith("war_atk:"):
                             member_name = custom_id.replace("war_atk:", "")
                             await message.channel.send(f"✨ **{member_name}** has respawned!")
-                        elif custom_id.startswith("war_col_atk:"):
-                            colony_id = custom_id.replace("war_col_atk:colony:", "")
+                        elif custom_id.startswith("war_col_atk:colony:"):  # Fixed: correct prefix
+                            colony_id = custom_id.replace("war_col_atk:", "")  # Keep the "colony:" prefix
                             # Find colony info from cache
                             for colony in self.colonies:
-                                if colony["ident"] == f"colony:{colony_id}":
+                                if colony["ident"] == colony_id:  # Match the full ident including "colony:"
                                     await message.channel.send(f"✨ Colony at **SB{colony['starbase']} ({colony['x']},{colony['y']})** has respawned!")
                                     break
                         
