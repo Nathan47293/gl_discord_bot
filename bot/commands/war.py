@@ -33,6 +33,7 @@ class WarCog(commands.Cog):
         # Store enemy alliance per guild when a new war is started via /attack.
         self.current_wars = {}
         self.last_war_message = None
+        self.war_channels = {}  # Add this to store channel references
 
     async def get_war_embed_and_view(self, guild_id: str, own: str, target: str, full_view: bool = True) -> tuple[discord.Embed, any]:
         async with self.bot.pool.acquire() as conn:
@@ -153,10 +154,14 @@ class WarCog(commands.Cog):
             except Exception as e:
                 print(f"Error trimming previous war message: {e}")
 
+        # Store the channel reference for this guild
+        self.war_channels[str(inter.guild_id)] = inter.channel
+        
         # Now get the full interactive war view.
         embed, view = await self.get_war_embed_and_view(str(inter.guild_id), own, target)
         msg = await inter.followup.send(embed=embed, view=view, wait=True)
         view.message = msg  # Add this line to store message reference
+        view.channel = inter.channel  # Add channel reference to view
         self.last_war_message = msg
 
     @app_commands.command(
