@@ -14,6 +14,12 @@ from ..db import (
 # Import the view that handles per-member buttons and timers
 from bot.views import WarView
 
+async def war_target_autocomplete(inter: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+    # Fetch all alliance names from the DB (using the bot's pool from the client)
+    choices = await all_alliances(inter.client.pool)
+    low = current.lower()
+    return [app_commands.Choice(name=a, value=a) for a in choices if low in a.lower()][:25]
+
 class WarCog(commands.Cog):
     """
     A Cog that handles the /attack command to start a war,
@@ -23,28 +29,6 @@ class WarCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         # Save bot reference to access its database pool
         self.bot = bot
-
-    # ---------------------------------------------
-    # Autocomplete callback for the 'target' parameter
-    # ---------------------------------------------
-    async def target_autocomplete(
-        self,
-        inter: discord.Interaction,
-        current: str
-    ) -> list[app_commands.Choice[str]]:
-        """
-        Called by Discord when the user is typing the 'target'
-        argument for /attack. Filters all alliance names.
-        """
-        # Fetch all alliance names from the DB
-        choices = await all_alliances(self.bot.pool)
-        low = current.lower()
-        # Return up to 25 matches containing the typed substring
-        return [
-            app_commands.Choice(name=a, value=a)
-            for a in choices
-            if low in a.lower()
-        ][:25]
 
     async def get_war_embed_and_view(self, guild_id: str, own: str, target: str) -> tuple[discord.Embed, WarView]:
         async with self.bot.pool.acquire() as conn:
@@ -85,7 +69,7 @@ class WarCog(commands.Cog):
         name="attack",
         description="Attack an enemy alliance: show respawn timers."
     )
-    @app_commands.autocomplete(target=WarCog.target_autocomplete)
+    @app_commands.autocomplete(target=war_target_autocomplete)
     async def attack(
         self,
         inter: discord.Interaction,
