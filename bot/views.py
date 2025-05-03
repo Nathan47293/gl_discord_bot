@@ -128,8 +128,8 @@ class WarView(ui.View):
                     if idx >= len(members):
                         continue
                     member = members[idx]
-                    # Replace non-breaking spaces with FIGURE SPACE (U+2007) for padding.
-                    padded_name = member["name"].ljust(self.max_name_length, "\u2007")
+                    # Compute centered member name using standard spaces.
+                    padded_name = member["name"].center(self.max_name_length)
                     name_btn = ui.Button(
                         label=padded_name,
                         style=ButtonStyle.secondary,
