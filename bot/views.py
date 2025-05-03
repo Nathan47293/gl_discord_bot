@@ -337,11 +337,20 @@ class WarView(ui.View):
                     if remaining <= 0:
                         # Find the name/identity of what respawned
                         custom_id = item.custom_id
+                        # Remove the war_attacks record when cooldown expires
                         if custom_id.startswith("war_atk:"):
                             member_name = custom_id.replace("war_atk:", "")
+                            await self.pool.execute(
+                                "DELETE FROM war_attacks WHERE guild_id=$1 AND member=$2",
+                                self.guild_id, member_name
+                            )
                             await message.channel.send(f"✨ **{member_name}** has respawned!")
                         elif custom_id.startswith("war_col_atk:"):
                             colony_id = custom_id.replace("war_col_atk:", "")
+                            await self.pool.execute(
+                                "DELETE FROM war_attacks WHERE guild_id=$1 AND member=$2",
+                                self.guild_id, colony_id
+                            )
                             for colony in self.colonies:
                                 if colony["ident"] == colony_id:
                                     await message.channel.send(f"✨ Colony at **SB{colony['starbase']} ({colony['x']},{colony['y']})** has respawned!")
