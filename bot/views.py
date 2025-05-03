@@ -251,7 +251,7 @@ class WarView(ui.View):
     def format_member_table(self) -> str:
         """
         Returns a formatted code block with a two-column table
-        listing all member names, centered using the cached max length.
+        listing all member names, using fixed-width formatting.
         """
         if not hasattr(self, "members") or not self.members:
             return "No members."
@@ -262,7 +262,7 @@ class WarView(ui.View):
         right = self.members[half:]
         lines = []
         for i in range(half):
-            left_name = left[i]['name'].center(max_name)
-            right_name = right[i]['name'].center(max_name) if i < len(right) else ""
+            left_name = f"{left[i]['name'] :^{max_name}}"
+            right_name = f"{right[i]['name'] :^{max_name}}" if i < len(right) else ""
             lines.append(f"{left_name}   {right_name}")
         return "```\n" + "\n".join(lines) + "\n```"
