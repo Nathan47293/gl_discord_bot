@@ -243,7 +243,7 @@ class WarView(ui.View):
                     disabled = remaining > 0
                     style = ButtonStyle.danger if disabled else ButtonStyle.primary
                 else:
-                    attack_label = "Attack"
+                    attack_label = "Attacked"  # Changed from "Attack"
                     disabled = False
                     style = ButtonStyle.primary
                 attack_btn = ui.Button(
@@ -266,16 +266,6 @@ class WarView(ui.View):
                 now = datetime.datetime.now(datetime.timezone.utc)
                 await interaction.response.defer()
                 
-                # Set attacking state without rebuilding view
-                for item in self.children:
-                    if item.custom_id == f"war_atk:{member}":
-                        item.label = "Attacking..."
-                        item.style = ButtonStyle.danger
-                        item.disabled = True
-                        break
-                await interaction.edit_original_response(view=self)
-                
-                # Do DB operation
                 await self.pool.execute(
                     """
                     INSERT INTO war_attacks(guild_id, member, last_attack)
@@ -286,7 +276,7 @@ class WarView(ui.View):
                     self.guild_id, member
                 )
                 
-                # Now rebuild view to show cooldown
+                # Update cache and rebuild view to show cooldown
                 for member_entry in self.members:
                     if member_entry["name"] == member:
                         member_entry["last"] = now
@@ -306,16 +296,6 @@ class WarView(ui.View):
                 now = datetime.datetime.now(datetime.timezone.utc)
                 await interaction.response.defer()
                 
-                # Set attacking state without rebuilding view
-                for item in self.children:
-                    if item.custom_id == f"war_col_atk:{ident}":
-                        item.label = "Attacking..."
-                        item.style = ButtonStyle.danger
-                        item.disabled = True
-                        break
-                await interaction.edit_original_response(view=self)
-                
-                # Do DB operation
                 await self.pool.execute(
                     """
                     INSERT INTO war_attacks(guild_id, member, last_attack)
@@ -326,7 +306,7 @@ class WarView(ui.View):
                     self.guild_id, ident
                 )
                 
-                # Now rebuild view to show cooldown
+                # Update cache and rebuild view to show cooldown
                 for colony in self.colonies:
                     if colony["ident"] == ident:
                         colony["last"] = now
