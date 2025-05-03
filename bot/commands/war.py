@@ -30,6 +30,8 @@ class WarCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         # Save bot reference to access its database pool
         self.bot = bot
+        # Store enemy alliance per guild when a new war is started via /attack.
+        self.current_wars = {}
 
     async def get_war_embed_and_view(self, guild_id: str, own: str, target: str) -> tuple[discord.Embed, WarView]:
         async with self.bot.pool.acquire() as conn:
@@ -94,6 +96,8 @@ class WarCog(commands.Cog):
                 "❌ War already in progress. Use /war to view the attack screen.",
                 ephemeral=True
             )
+        # Save the enemy alliance from the input for later /war reference.
+        self.current_wars[str(inter.guild_id)] = target
         # Defer the response to allow extra processing time.
         await inter.response.defer()
 
@@ -122,10 +126,13 @@ class WarCog(commands.Cog):
             return await inter.followup.send("❌ Set your alliance first with /setalliance.", ephemeral=True)
         # Retrieve the current war record.
         war_record = await get_current_war(self.bot.pool, str(inter.guild_id))
-        if not war_record:
-            return await inter.followup.send("❌ No active war.", ephemeral=True)
-        # Use the enemy alliance from the war record.
-        target = war_record["enemy_alliance"]
+        if war_record:
+            target = war_record["enemy_alliance"]
+        else:
+            # Fallback: look up stored enemy alliance from /attack.
+            target = self.current_wars.get(str(inter.guild_id))
+            if not target:
+                return await inter.followup.send("❌ No active war.", ephemeral=True)
 
         embed, view = await self.get_war_embed_and_view(str(inter.guild_id), own, target)
         await inter.followup.send(embed=embed, view=view)
