@@ -28,7 +28,8 @@ class WarView(ui.View):
         self._countdown_task = None
         self.current_page = 0
         self.mode = "main"      # "main" for members, "colony" for colonies
-        self.colonies = None    # cache for colony mode
+        self.colonies = []      # cache for colony mode
+        self.members = []       # cache for main mode
 
     async def populate(self):
         try:
@@ -81,7 +82,7 @@ class WarView(ui.View):
                     self.max_name_length = max((len(f"SB{c['starbase']} ({c['x']},{c['y']})") for c in colonies_data), default=0)
                     self.colonies = []
                     for rec in colonies_data:
-                        ident = f"colony:{rec['starbase']}:{rec['x']},{rec['y']}"
+                        ident = f"colony:{rec['starbase']}:{rec['x']}:{rec['y']}"
                         last = await self.pool.fetchval(
                             "SELECT last_attack FROM war_attacks WHERE guild_id=$1 AND member=$2",
                             self.guild_id, ident
