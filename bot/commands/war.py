@@ -11,7 +11,7 @@ from ..db import (
     all_alliances           # Returns list of all alliances (for autocomplete)
 )
 # Import the view that handles per-member buttons and timers
-from ..views import WarView
+from bot.views import WarView
 
 class WarCog(commands.Cog):
     """
@@ -121,10 +121,10 @@ class WarCog(commands.Cog):
             )
 
         # 7) Sum warpoints: for each record, map SB to wp and total
-        own_wp   = sum(wp_map.get(r["main_sb"], 0) for r in main_enemy) + \
-                   sum(wp_map.get(r["starbase"],0) for r in col_enemy)
-        enemy_wp = sum(wp_map.get(r["main_sb"], 0) for r in main_own) + \
+        own_wp   = sum(wp_map.get(r["main_sb"], 0) for r in main_own) + \
                    sum(wp_map.get(r["starbase"],0) for r in col_own)
+        enemy_wp = sum(wp_map.get(r["main_sb"], 0) for r in main_enemy) + \
+                   sum(wp_map.get(r["starbase"],0) for r in col_enemy)
 
         # 8) Build the embed
         embed = discord.Embed(
