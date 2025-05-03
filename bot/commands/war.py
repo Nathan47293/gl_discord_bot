@@ -155,14 +155,23 @@ class WarCog(commands.Cog):
             except Exception as e:
                 print(f"Error trimming previous war message: {e}")
 
+        print("\n=== War Command Debug ===")
+        print(f"Guild ID: {inter.guild_id}")
+        print(f"Channel ID: {inter.channel.id}")
+        
         # Store the channel reference for this guild
         self.war_channels[str(inter.guild_id)] = inter.channel
         
         # Now get the full interactive war view.
         embed, view = await self.get_war_embed_and_view(str(inter.guild_id), own, target)
         
+        print(f"Created view with ID: {id(view)}")
+        print(f"Active views before: {list(self.active_views.keys())}")
+        
         # Store view reference so we can update it from other instances
         self.active_views[str(inter.guild_id)] = view
+        
+        print(f"Active views after: {list(self.active_views.keys())}")
         
         msg = await inter.followup.send(embed=embed, view=view, wait=True)
         view.message = msg  # Add this line to store message reference

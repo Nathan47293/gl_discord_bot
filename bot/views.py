@@ -51,6 +51,11 @@ class WarView(ui.View):
 
     async def populate(self):
         try:
+            print("\n=== Starting populate() ===")
+            print(f"View ID: {id(self)}")
+            print(f"Has parent_cog: {hasattr(self, 'parent_cog')}")
+            print(f"Has channel: {hasattr(self, 'channel')}")
+            
             # First check for expired attacks and send notifications before cleaning up
             expired = await self.pool.fetch(
                 """
@@ -63,9 +68,11 @@ class WarView(ui.View):
             )
 
             if expired:
+                print(f"\nProcessing {len(expired)} expired attacks:")
                 # Update both the database and our local cache
                 for record in expired:
                     member = record['member']
+                    print(f"- Processing {member}")
                     if member.startswith('colony:'):
                         for colony in self.colonies:
                             if colony["ident"] == member:
@@ -89,11 +96,17 @@ class WarView(ui.View):
                     self.guild_id, [r['member'] for r in expired]
                 )
 
-                # Update all active views
+                print("\nAttempting to update other views:")
                 if hasattr(self, 'parent_cog'):
-                    for view in self.parent_cog.active_views.values():
+                    print(f"Active views count: {len(self.parent_cog.active_views)}")
+                    for view_id, view in self.parent_cog.active_views.items():
+                        print(f"- Updating view {view_id} (self: {id(self)})")
                         if view != self:
+                            print("  Calling rebuild_view()")
                             await view.rebuild_view()
+                            print("  rebuild_view() completed")
+                else:
+                    print("No parent_cog found!")
 
             # Continue with normal population...
             # Store channel reference for messages
