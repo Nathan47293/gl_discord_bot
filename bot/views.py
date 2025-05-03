@@ -34,7 +34,7 @@ class WarView(ui.View):
     async def populate(self):
         try:
             if self.mode == "main":
-                if not hasattr(self, "members"):
+                if not self.members:
                     war = await get_current_war(self.pool, self.guild_id)
                     if war:
                         enemy = war["enemy_alliance"]
