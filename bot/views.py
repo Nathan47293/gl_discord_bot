@@ -278,8 +278,7 @@ class WarView(ui.View):
                         item.style = ButtonStyle.danger
                         item.disabled = True
                         break
-                await interaction.response.edit_message(view=self)
-                # Upsert the last_attack time in war_attacks
+                # Removed first edit_message call to avoid duplicate response
                 await self.pool.execute(
                     """
                     INSERT INTO war_attacks(guild_id, member, last_attack)
@@ -299,9 +298,13 @@ class WarView(ui.View):
                         item.disabled = True
                         break
                 self.rebuild_view()
+                # Single response update call at the end.
                 await interaction.response.edit_message(view=self)
             except Exception as e:
-                await interaction.response.send_message(f"Error: {e}", ephemeral=True)
+                try:
+                    await interaction.followup.send(f"Error: {e}", ephemeral=True)
+                except Exception:
+                    pass
         return callback
 
     def create_colony_callback(self, ident):
@@ -314,7 +317,7 @@ class WarView(ui.View):
                         item.style = ButtonStyle.danger
                         item.disabled = True
                         break
-                await interaction.response.edit_message(view=self)
+                # Removed first call to edit_message here.
                 await self.pool.execute(
                     """
                     INSERT INTO war_attacks(guild_id, member, last_attack)
@@ -332,9 +335,13 @@ class WarView(ui.View):
                         item.disabled = True
                         break
                 self.rebuild_view()
+                # Single response update call at the end.
                 await interaction.response.edit_message(view=self)
             except Exception as e:
-                await interaction.response.send_message(f"Error: {e}", ephemeral=True)
+                try:
+                    await interaction.followup.send(f"Error: {e}", ephemeral=True)
+                except Exception:
+                    pass
         return callback
 
     # New method to update all buttons live with their remaining cooldown
