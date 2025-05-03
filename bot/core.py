@@ -26,12 +26,10 @@ if not TOKEN:
 if not DATABASE:
     raise RuntimeError("Set DATABASE_URL")
 
-# Configure the Discord Gateway intents your bot needs.
-# `default()` gives you non-privileged intents (guilds, members, messages, etc.),
-# without message content. If you need message content, you'd enable it here.
+# Configure the Discord Gateway intents your bot needs
 intents = discord.Intents.default()
-intents.message_content = True
-intents.members = True
+intents.message_content = True  # Enable message content intent
+intents.members = True          # Enable server members intent
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Main Bot Class Definition

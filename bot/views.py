@@ -386,3 +386,77 @@ class WarView(ui.View):
                     print("Error updating view:", e)
             # Sleep until the next minute boundary to reduce update frequency.
             await asyncio.sleep(5)
+
+    async def start_countdown(self, message):
+        import asyncio
+        while not self.is_finished():
+            updated = False
+            now = datetime.datetime.now(datetime.timezone.utc)
+            for item in self.children:
+                if hasattr(item, 'last_attack'):
+                    elapsed = (now - item.last_attack).total_seconds()
+                    remaining = max(0, self.cd * 3600 - elapsed)
+                    
+                    if remaining <= 0:
+                        try:
+                            custom_id = item.custom_id
+                            if custom_id.startswith("war_atk:"):
+                                member = custom_id.replace("war_atk:", "")
+                                # Delete record first
+                                await self.pool.execute(
+                                    "DELETE FROM war_attacks WHERE guild_id=$1 AND member=$2",
+                                    self.guild_id, member
+                                )
+                                # Then send message and update button
+                                await message.channel.send(f"✨ **{member}** has respawned!")
+                                item.label = "Attacked"
+                                item.style = ButtonStyle.primary
+                                item.disabled = False
+                                del item.last_attack
+                                updated = True
+
+                            elif custom_id.startswith("war_col_atk:colony:"):
+                                colony_id = custom_id.replace("war_col_atk:colony:", "")
+                                # Delete record first
+                                await self.pool.execute(
+                                    "DELETE FROM war_attacks WHERE guild_id=$1 AND member=$2",
+                                    self.guild_id, f"colony:{colony_id}"
+                                )
+                                # Then look up colony info and send message
+                                for colony in self.colonies:
+                                    if colony["ident"] == f"colony:{colony_id}":
+                                        await message.channel.send(
+                                            f"✨ Colony at **SB{colony['starbase']} ({colony['x']},{colony['y']})** has respawned!"
+                                        )
+                                        break
+                                item.label = "Attacked"
+                                item.style = ButtonStyle.primary
+                                item.disabled = False
+                                del item.last_attack
+                                updated = True
+                            
+                            continue  # Skip to next item after handling respawn
+                        except Exception as e:
+                            print(f"Error handling respawn: {e}")
+                            continue
+                            
+                    # Only update countdown if not respawned
+                    if remaining >= 3600:
+                        hr = int(remaining // 3600)
+                        mn = int((remaining % 3600) // 60)
+                        new_label = f"{self.cd}hr" if mn == 0 else f"{hr}hr {mn}min"
+                    else:
+                        mn = int(math.ceil(remaining/60))
+                        new_label = f"{mn}min"
+                    item.style = ButtonStyle.danger
+                    item.disabled = True
+                    if new_label != item.label:
+                        item.label = new_label
+                        updated = True
+                        
+            if updated:
+                try:
+                    await message.edit(view=self)
+                except Exception as e:
+                    print(f"Error updating view: {e}")
+            await asyncio.sleep(5)
