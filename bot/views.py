@@ -320,143 +320,78 @@ class WarView(ui.View):
                     pass
         return callback
 
-    # New method to update all buttons live with their remaining cooldown
+    # Remove the first start_countdown implementation and keep only this one
     async def start_countdown(self, message):
         import asyncio
+        print("Countdown task started")  # Debug log
         while not self.is_finished():
-            updated = False
-            now = datetime.datetime.now(datetime.timezone.utc)
-            for item in self.children:
-                # Skip buttons in the "Attacking..." state
-                if hasattr(item, 'is_attacking') and item.is_attacking:
-                    continue
-                # Only update buttons with an active cooldown
-                if hasattr(item, 'last_attack'):
-                    elapsed = (now - item.last_attack).total_seconds()
-                    remaining = max(0, self.cd * 3600 - elapsed)
-                    
-                    # First check if cooldown is over and delete from DB if so
-                    if remaining <= 0:
-                        custom_id = item.custom_id
-                        member = None
+            try:
+                updated = False
+                now = datetime.datetime.now(datetime.timezone.utc)
+                for item in self.children:
+                    if hasattr(item, 'last_attack'):
+                        elapsed = (now - item.last_attack).total_seconds()
+                        remaining = max(0, self.cd * 3600 - elapsed)
                         
-                        if custom_id.startswith("war_atk:"):
-                            member = custom_id.replace("war_atk:", "")
-                            await message.channel.send(f"✨ **{member}** has respawned!")
-                        elif custom_id.startswith("war_col_atk:"):
-                            member = custom_id.replace("war_col_atk:", "")
-                            for colony in self.colonies:
-                                if colony["ident"] == member:
-                                    await message.channel.send(f"✨ Colony at **SB{colony['starbase']} ({colony['x']},{colony['y']})** has respawned!")
-                                    break
-                        
-                        # Delete the war_attack record
-                        if member:
-                            await self.pool.execute(
-                                "DELETE FROM war_attacks WHERE guild_id=$1 AND member=$2",
-                                self.guild_id, member
-                            )
-                        
-                        # Reset button state
-                        item.label = "Attacked"
-                        item.style = ButtonStyle.primary
-                        item.disabled = False
-                        new_label = item.label
-                        del item.last_attack
-                        updated = True
-                        continue  # Skip to next item
-                        
-                    # Otherwise update the countdown
-                    if remaining >= 3600:
-                        hr = int(remaining // 3600)
-                        mn = int((remaining % 3600) // 60)
-                        new_label = f"{self.cd}hr" if mn == 0 else f"{hr}hr {mn}min"
-                    else:
-                        mn = int(math.ceil(remaining/60))
-                        new_label = f"{mn}min"
-                    item.style = ButtonStyle.danger
-                    item.disabled = True
-                    if new_label != item.label:
-                        item.label = new_label
-                        updated = True
-            if updated:
-                try:
-                    await message.edit(view=self)
-                except Exception as e:
-                    print("Error updating view:", e)
-            # Sleep until the next minute boundary to reduce update frequency.
-            await asyncio.sleep(5)
-
-    async def start_countdown(self, message):
-        import asyncio
-        while not self.is_finished():
-            updated = False
-            now = datetime.datetime.now(datetime.timezone.utc)
-            for item in self.children:
-                if hasattr(item, 'last_attack'):
-                    elapsed = (now - item.last_attack).total_seconds()
-                    remaining = max(0, self.cd * 3600 - elapsed)
-                    
-                    if remaining <= 0:
-                        try:
+                        if remaining <= 0:
                             custom_id = item.custom_id
-                            if custom_id.startswith("war_atk:"):
-                                member = custom_id.replace("war_atk:", "")
-                                # Delete record first
-                                await self.pool.execute(
-                                    "DELETE FROM war_attacks WHERE guild_id=$1 AND member=$2",
-                                    self.guild_id, member
-                                )
-                                # Then send message and update button
-                                await message.channel.send(f"✨ **{member}** has respawned!")
+                            try:
+                                if custom_id.startswith("war_atk:"):
+                                    member = custom_id.replace("war_atk:", "")
+                                    print(f"Deleting record for {member}")  # Debug log
+                                    await self.pool.execute(
+                                        "DELETE FROM war_attacks WHERE guild_id=$1 AND member=$2",
+                                        self.guild_id, member
+                                    )
+                                    await message.channel.send(f"✨ **{member}** has respawned!")
+                                    for m in self.members:
+                                        if m["name"] == member:
+                                            m["last"] = None
+                                            break
+
+                                elif custom_id.startswith("war_col_atk:"):
+                                    member = custom_id.replace("war_col_atk:", "")
+                                    print(f"Deleting record for colony {member}")  # Debug log
+                                    await self.pool.execute(
+                                        "DELETE FROM war_attacks WHERE guild_id=$1 AND member=$2",
+                                        self.guild_id, member
+                                    )
+                                    for colony in self.colonies:
+                                        if colony["ident"] == member:
+                                            await message.channel.send(
+                                                f"✨ Colony at **SB{colony['starbase']} ({colony['x']},{colony['y']})** has respawned!"
+                                            )
+                                            colony["last"] = None
+                                            break
+                                
                                 item.label = "Attacked"
                                 item.style = ButtonStyle.primary
                                 item.disabled = False
                                 del item.last_attack
+                                updated = True
+                            except Exception as e:
+                                print(f"Error in cooldown completion: {e}")  # Debug log
+                            continue
+
+                        else:
+                            if remaining >= 3600:
+                                hr = int(remaining // 3600)
+                                mn = int((remaining % 3600) // 60)
+                                new_label = f"{self.cd}hr" if mn == 0 else f"{hr}hr {mn}min"
+                            else:
+                                mn = int(math.ceil(remaining/60))
+                                new_label = f"{mn}min"
+                            
+                            if new_label != item.label:
+                                item.label = new_label
+                                item.style = ButtonStyle.danger
+                                item.disabled = True
                                 updated = True
 
-                            elif custom_id.startswith("war_col_atk:colony:"):
-                                colony_id = custom_id.replace("war_col_atk:colony:", "")
-                                # Delete record first
-                                await self.pool.execute(
-                                    "DELETE FROM war_attacks WHERE guild_id=$1 AND member=$2",
-                                    self.guild_id, f"colony:{colony_id}"
-                                )
-                                # Then look up colony info and send message
-                                for colony in self.colonies:
-                                    if colony["ident"] == f"colony:{colony_id}":
-                                        await message.channel.send(
-                                            f"✨ Colony at **SB{colony['starbase']} ({colony['x']},{colony['y']})** has respawned!"
-                                        )
-                                        break
-                                item.label = "Attacked"
-                                item.style = ButtonStyle.primary
-                                item.disabled = False
-                                del item.last_attack
-                                updated = True
-                            
-                            continue  # Skip to next item after handling respawn
-                        except Exception as e:
-                            print(f"Error handling respawn: {e}")
-                            continue
-                            
-                    # Only update countdown if not respawned
-                    if remaining >= 3600:
-                        hr = int(remaining // 3600)
-                        mn = int((remaining % 3600) // 60)
-                        new_label = f"{self.cd}hr" if mn == 0 else f"{hr}hr {mn}min"
-                    else:
-                        mn = int(math.ceil(remaining/60))
-                        new_label = f"{mn}min"
-                    item.style = ButtonStyle.danger
-                    item.disabled = True
-                    if new_label != item.label:
-                        item.label = new_label
-                        updated = True
-                        
-            if updated:
-                try:
+                if updated:
                     await message.edit(view=self)
-                except Exception as e:
-                    print(f"Error updating view: {e}")
+
+            except Exception as e:
+                print(f"Error in countdown loop: {e}")  # Debug log
+                
             await asyncio.sleep(5)
