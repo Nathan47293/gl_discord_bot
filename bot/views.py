@@ -49,7 +49,8 @@ class WarView(ui.View):
                 " WHERE alliance=$1 ORDER BY main_sb DESC",
                 war["enemy_alliance"]
             )
-            now = datetime.datetime.utcnow()
+            # Use offset-aware datetime
+            now = datetime.datetime.now(datetime.timezone.utc)
 
             for rec in members:
                 member_name = rec["member"]

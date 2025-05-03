@@ -144,6 +144,7 @@ class WarCog(commands.Cog):
         # Add a zero-width field to move to next line
         embed.add_field(name="\u200b", value="\u200b", inline=False)
         # Add WP/Raid stats beneath their respective cooldowns
+        # Swap warpoints values: enemy_wp goes to WP/Raid and own_wp to Enemy WP/Raid
         embed.add_field(
             name="⭐ WP/Raid", value=f"{enemy_wp:,}", inline=True
         )
