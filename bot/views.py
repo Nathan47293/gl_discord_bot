@@ -346,6 +346,12 @@ class WarView(ui.View):
                     if member_entry["name"] == member:
                         member_entry["last"] = now
                         break
+
+                # Get parent view and update it if it exists
+                parent_view = self.parent_cog.active_views.get(self.guild_id)
+                if parent_view and parent_view != self:
+                    await parent_view.populate()  # Update the main view
+
                 self.rebuild_view()
                 await interaction.edit_original_response(view=self)
             except Exception as e:
@@ -376,6 +382,12 @@ class WarView(ui.View):
                     if colony["ident"] == ident:
                         colony["last"] = now
                         break
+
+                # Get parent view and update it if it exists
+                parent_view = self.parent_cog.active_views.get(self.guild_id)
+                if parent_view and parent_view != self:
+                    await parent_view.populate()  # Update the main view
+
                 self.rebuild_view()
                 await interaction.edit_original_response(view=self)
             except Exception as e:

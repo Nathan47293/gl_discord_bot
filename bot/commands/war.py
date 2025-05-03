@@ -34,6 +34,7 @@ class WarCog(commands.Cog):
         self.current_wars = {}
         self.last_war_message = None
         self.war_channels = {}  # Add this to store channel references
+        self.active_views = {}  # Store active war views per guild
 
     async def get_war_embed_and_view(self, guild_id: str, own: str, target: str, full_view: bool = True) -> tuple[discord.Embed, any]:
         async with self.bot.pool.acquire() as conn:
@@ -159,9 +160,14 @@ class WarCog(commands.Cog):
         
         # Now get the full interactive war view.
         embed, view = await self.get_war_embed_and_view(str(inter.guild_id), own, target)
+        
+        # Store view reference so we can update it from other instances
+        self.active_views[str(inter.guild_id)] = view
+        
         msg = await inter.followup.send(embed=embed, view=view, wait=True)
         view.message = msg  # Add this line to store message reference
         view.channel = inter.channel  # Add channel reference to view
+        view.parent_cog = self  # Give view access to this cog
         self.last_war_message = msg
 
     @app_commands.command(
