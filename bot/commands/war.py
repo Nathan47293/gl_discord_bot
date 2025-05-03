@@ -135,12 +135,15 @@ class WarCog(commands.Cog):
             color=discord.Color.red()
         )
         # Row 1: Attacking and Defending cooldown side-by-side.
-        # Append invisible zero-width spaces to force the next row.
         embed.add_field(
-            name="⚔️ Attacking cooldown", value=f"{T_enemy} hours\u200b\u200b\u200b\u200b", inline=True
+            name="⚔️ Attacking cooldown", value=f"{T_enemy} hours", inline=True
         )
         embed.add_field(
-            name="🛡️ Defending cooldown", value=f"{T_you} hours\u200b\u200b\u200b\u200b", inline=True
+            name="🛡️ Defending cooldown", value=f"{T_you} hours", inline=True
+        )
+        # Add a blank field to force a new row.
+        embed.add_field(
+            name="\u200b", value="\u200b", inline=True
         )
         # Row 2: WP/Raid and Enemy WP/Raid side-by-side.
         embed.add_field(
