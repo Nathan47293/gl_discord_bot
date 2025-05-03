@@ -36,6 +36,12 @@ class WarView(ui.View):
             now = datetime.datetime.now(datetime.timezone.utc)
             print(f"Checking for expired attacks in guild {self.guild_id}")
 
+            # Store channel reference for messages
+            self.message_channel = getattr(self, 'message', None)
+            if self.message_channel:
+                self.message_channel = self.message_channel.channel
+                print(f"Found message channel: {self.message_channel.id}")
+
             # First check for expired attacks and send notifications before cleaning up
             expired = await self.pool.fetch(
                 """
@@ -47,50 +53,32 @@ class WarView(ui.View):
                 self.guild_id, self.cd * 3600
             )
 
-            channel = None
             if expired:
                 print(f"Found {len(expired)} expired attacks")
-                for record in expired:
-                    member = record['member']
-                    if member.startswith('colony:'):
-                        # Handle colony respawn notification
-                        for colony in self.colonies:
-                            if colony["ident"] == member:
-                                if not channel:
-                                    channel = self.message.channel if hasattr(self, 'message') else None
-                                if channel:
-                                    await channel.send(f"✨ Colony at **SB{colony['starbase']} ({colony['x']},{colony['y']})** has respawned!")
-                                break
-                    else:
-                        # Handle main planet respawn notification
-                        if not channel:
-                            channel = self.message.channel if hasattr(self, 'message') else None
-                        if channel:
-                            await channel.send(f"✨ **{member}** has respawned!")
+                if self.message_channel:
+                    for record in expired:
+                        member = record['member']
+                        try:
+                            if member.startswith('colony:'):
+                                for colony in self.colonies:
+                                    if colony["ident"] == member:
+                                        await self.message_channel.send(
+                                            f"✨ Colony at **SB{colony['starbase']} ({colony['x']},{colony['y']})** has respawned!"
+                                        )
+                                        break
+                            else:
+                                await self.message_channel.send(f"✨ **{member}** has respawned!")
+                            print(f"Sent respawn message for {member}")
+                        except Exception as e:
+                            print(f"Error sending message for {member}: {e}")
 
-                # Now clean up the expired attacks
-                await self.pool.execute(
-                    "DELETE FROM war_attacks WHERE guild_id=$1 AND EXTRACT(EPOCH FROM (NOW() - last_attack)) >= $2",
-                    self.guild_id, self.cd * 3600
-                )
-
-            print(f"Cleaning up expired attacks for guild {self.guild_id}")  # Debug log
-            
-            # First, clean up any expired attacks and log the results
+            # Now clean up the expired attacks
             result = await self.pool.execute(
-                """
-                WITH deleted AS (
-                    DELETE FROM war_attacks 
-                    WHERE guild_id=$1 
-                    AND EXTRACT(EPOCH FROM (NOW() - last_attack)) >= $2
-                    RETURNING member
-                )
-                SELECT COUNT(*) FROM deleted
-                """,
+                "DELETE FROM war_attacks WHERE guild_id=$1 AND EXTRACT(EPOCH FROM (NOW() - last_attack)) >= $2",
                 self.guild_id, self.cd * 3600
             )
-            print(f"Cleaned up {result} expired attacks") # Debug log
-            
+            print(f"Cleaned up {result} expired attacks")
+
             if self.mode == "main":
                 if not self.members:
                     war = await get_current_war(self.pool, self.guild_id)

@@ -156,6 +156,7 @@ class WarCog(commands.Cog):
         # Now get the full interactive war view.
         embed, view = await self.get_war_embed_and_view(str(inter.guild_id), own, target)
         msg = await inter.followup.send(embed=embed, view=view, wait=True)
+        view.message = msg  # Add this line to store message reference
         self.last_war_message = msg
 
     @app_commands.command(
