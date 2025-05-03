@@ -173,10 +173,10 @@ class WarView(ui.View):
                 self.mode = "colony"
                 self.current_page = 0
                 if not self.colonies:
-                    # Show loading only the first time
+                    # Disable all buttons but only change Colonies label to Loading
                     for item in self.children:
                         item.disabled = True
-                        if hasattr(item, "label"):
+                        if item.custom_id == "mode:colonies":
                             item.label = "Loading..."
                     await interaction.edit_original_response(view=self)
                     await self.populate()
