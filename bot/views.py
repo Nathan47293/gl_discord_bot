@@ -33,16 +33,64 @@ class WarView(ui.View):
 
     async def populate(self):
         try:
-            # First, clean up any expired attacks in the database
-            await self.pool.execute(
+            now = datetime.datetime.now(datetime.timezone.utc)
+            print(f"Checking for expired attacks in guild {self.guild_id}")
+
+            # First check for expired attacks and send notifications before cleaning up
+            expired = await self.pool.fetch(
                 """
-                DELETE FROM war_attacks 
+                SELECT member, EXTRACT(EPOCH FROM (NOW() - last_attack)) as elapsed
+                FROM war_attacks 
                 WHERE guild_id=$1 
                 AND EXTRACT(EPOCH FROM (NOW() - last_attack)) >= $2
                 """,
                 self.guild_id, self.cd * 3600
             )
 
+            channel = None
+            if expired:
+                print(f"Found {len(expired)} expired attacks")
+                for record in expired:
+                    member = record['member']
+                    if member.startswith('colony:'):
+                        # Handle colony respawn notification
+                        for colony in self.colonies:
+                            if colony["ident"] == member:
+                                if not channel:
+                                    channel = self.message.channel if hasattr(self, 'message') else None
+                                if channel:
+                                    await channel.send(f"✨ Colony at **SB{colony['starbase']} ({colony['x']},{colony['y']})** has respawned!")
+                                break
+                    else:
+                        # Handle main planet respawn notification
+                        if not channel:
+                            channel = self.message.channel if hasattr(self, 'message') else None
+                        if channel:
+                            await channel.send(f"✨ **{member}** has respawned!")
+
+                # Now clean up the expired attacks
+                await self.pool.execute(
+                    "DELETE FROM war_attacks WHERE guild_id=$1 AND EXTRACT(EPOCH FROM (NOW() - last_attack)) >= $2",
+                    self.guild_id, self.cd * 3600
+                )
+
+            print(f"Cleaning up expired attacks for guild {self.guild_id}")  # Debug log
+            
+            # First, clean up any expired attacks and log the results
+            result = await self.pool.execute(
+                """
+                WITH deleted AS (
+                    DELETE FROM war_attacks 
+                    WHERE guild_id=$1 
+                    AND EXTRACT(EPOCH FROM (NOW() - last_attack)) >= $2
+                    RETURNING member
+                )
+                SELECT COUNT(*) FROM deleted
+                """,
+                self.guild_id, self.cd * 3600
+            )
+            print(f"Cleaned up {result} expired attacks") # Debug log
+            
             if self.mode == "main":
                 if not self.members:
                     war = await get_current_war(self.pool, self.guild_id)
@@ -118,12 +166,18 @@ class WarView(ui.View):
         now = datetime.datetime.now(datetime.timezone.utc)
         cache = self.members if self.mode=="main" else self.colonies
 
-        # Remove expired attacks from our local cache
+        # Clear expired attacks from cache and log
+        expired_count = 0
         for entry in cache:
             if entry["last"]:
                 elapsed = (now - entry["last"]).total_seconds()
                 if elapsed >= self.cd * 3600:
+                    print(f"Clearing expired attack for {entry.get('name', entry.get('ident'))}") # Debug log
                     entry["last"] = None
+                    expired_count += 1
+        
+        if expired_count > 0:
+            print(f"Cleared {expired_count} expired attacks from cache")
 
         # Rebuild pagination and grid from cached self.members without DB queries.
         members_per_column = 4
