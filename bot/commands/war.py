@@ -94,7 +94,7 @@ class WarCog(commands.Cog):
                 "SELECT COUNT(*) FROM members WHERE alliance=$1", target
             )
 
-        # 4) Compute respawn cooldowns (swap sides)
+        # 4) Compute respawn cooldowns
         #    ratio_enemy = E/A, ratio_you = A/E, minimum 1
         ratio_enemy = max(E / A, 1)
         ratio_you   = max(A / E, 1)
@@ -149,7 +149,16 @@ class WarCog(commands.Cog):
         )
 
         # 9) Send the embed; optionally mount your WarView here
-        await inter.response.send_message(embed=embed)
+        #await inter.response.send_message(embed=embed)
+        # ...existing code...
+        view = WarView(
+            guild_id=str(inter.guild_id),  # Pass the guild ID
+            cooldown_hours=4,             # Use the cooldown duration (e.g., 4 hours)
+            pool=self.bot.pool            # Pass the database connection pool
+        )
+        await view.populate()  # Dynamically populate the buttons
+        await inter.response.send_message(embed=embed, view=view)
+        
 
 # Setup function to register this Cog with the bot
 async def setup(bot: commands.Bot):

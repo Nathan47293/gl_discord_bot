@@ -37,62 +37,60 @@ class WarView(ui.View):
             * Otherwise, the button reads "Attacked", is enabled (purple), and clicking it
               will record a new attack timestamp.
         """
-        # 1) Retrieve the current war row, which includes 'enemy_alliance'
-        war = await get_current_war(self.pool, self.guild_id)
-        # 2) Fetch all members from that enemy alliance, sorted by main starbase desc
-        members = await self.pool.fetch(
-            "SELECT member, main_sb FROM members"
-            " WHERE alliance=$1 ORDER BY main_sb DESC",
-            war["enemy_alliance"]
-        )
-        now = datetime.datetime.utcnow()  # Current UTC time for cooldown calc
+        try:
+            # Retrieve the current war row
+            war = await get_current_war(self.pool, self.guild_id)
+            if not war:
+                raise ValueError("No active war found for this guild.")
 
-        # 3) Loop over each member record
-        for rec in members:
-            member_name = rec["member"]
-            # 3a) Get last attack timestamp for this member (if any)
-            last = await self.pool.fetchval(
-                "SELECT last_attack FROM war_attacks"
-                " WHERE guild_id=$1 AND member=$2",
-                self.guild_id, member_name
+            # Fetch all members from the enemy alliance
+            members = await self.pool.fetch(
+                "SELECT member, main_sb FROM members"
+                " WHERE alliance=$1 ORDER BY main_sb DESC",
+                war["enemy_alliance"]
             )
+            now = datetime.datetime.utcnow()
 
-            # 3b) Compute how many seconds remain in the cooldown
-            if last:
-                elapsed = (now - last).total_seconds()
-                remaining = max(0, self.cd * 3600 - elapsed)
-            else:
-                remaining = 0  # Never attacked yet
+            for rec in members:
+                member_name = rec["member"]
+                last = await self.pool.fetchval(
+                    "SELECT last_attack FROM war_attacks"
+                    " WHERE guild_id=$1 AND member=$2",
+                    self.guild_id, member_name
+                )
 
-            # 3c) Determine button label, style, and disabled state
-            if remaining > 0:
-                # If still on cooldown, show hours left, red danger style
+                # Compute remaining cooldown
+                remaining = max(0, self.cd * 3600 - (now - last).total_seconds()) if last else 0
                 hours_left = math.ceil(remaining / 3600)
-                label = f"{hours_left}h"
-                style = ButtonStyle.danger
-                disabled = True
-            else:
-                # Otherwise, allow a new attack: "Attacked" label, purple primary style
-                label = "Attacked"
-                style = ButtonStyle.primary
-                disabled = False
+                label = f"{hours_left}h" if remaining > 0 else "Attacked"
+                style = ButtonStyle.danger if remaining > 0 else ButtonStyle.primary
+                disabled = remaining > 0
 
-            # 4) Create the Button with a unique custom_id to identify which member
-            btn = ui.Button(
-                label=label,
-                style=style,
-                custom_id=f"war_atk:{member_name}",
-                disabled=disabled
-            )
+                # Create the button
+                btn = ui.Button(
+                    label=label,
+                    style=style,
+                    custom_id=f"war_atk:{member_name}",
+                    disabled=disabled
+                )
 
-            # 5) Define the callback for when this button is clicked
-            async def callback(interaction, button=btn, member=member_name):
-                """
-                Records a new attack timestamp for 'member' and updates the button state:
-                - Inserts or updates the war_attacks.last_attack to NOW().
-                - Sets the button into its cooldown appearance.
-                - Edits the original message to refresh the View.
-                """
+                # Attach a unique callback
+                btn.callback = self.create_callback(member_name)
+                self.add_item(btn)
+        except Exception as e:
+            print(f"Error populating WarView: {e}")
+
+    # Revised callback factory method with proper signature
+    def create_callback(self, member):
+        """
+        Factory function to create a unique callback for each button.
+        Records a new attack timestamp for 'member' and updates the button state:
+            - Inserts or updates war_attacks.last_attack to NOW().
+            - Sets the button into its cooldown appearance.
+            - Edits the original message to refresh the View.
+        """
+        async def callback(interaction):
+            try:
                 # Upsert the last_attack time in war_attacks
                 await self.pool.execute(
                     """
@@ -103,13 +101,14 @@ class WarView(ui.View):
                     """,
                     self.guild_id, member
                 )
-                # Update the button in-place
-                button.label = f"{self.cd}h"
-                button.style = ButtonStyle.danger
-                button.disabled = True
-                # Edit the message to re-render the buttons with new state
+                # Update the button state
+                for item in self.children:
+                    if item.custom_id == f"war_atk:{member}":
+                        item.label = f"{self.cd}h"
+                        item.style = ButtonStyle.danger
+                        item.disabled = True
+                        break
                 await interaction.response.edit_message(view=self)
-
-            # 6) Attach the callback and add the button to this View
-            btn.callback = callback
-            self.add_item(btn)
+            except Exception as e:
+                await interaction.response.send_message(f"Error: {e}", ephemeral=True)
+        return callback

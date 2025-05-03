@@ -95,11 +95,3 @@ class GalaxyBot(commands.Bot):
 
 # Create exactly one instance of your bot
 bot = GalaxyBot()
-
-# If this file is your entry point (e.g. python galaxy_life_bot.py),
-# you’d typically do:
-# 
-# if __name__ == "__main__":
-#     bot.run(bot.TOKEN)
-#
-# But if you import `bot` elsewhere, just call `bot.run(bot.TOKEN)` there.
