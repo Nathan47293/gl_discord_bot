@@ -128,8 +128,8 @@ class WarView(ui.View):
                     if idx >= len(members):
                         continue
                     member = members[idx]
-                    # Compute centered member name using standard spaces.
-                    padded_name = member["name"].center(self.max_name_length)
+                    # Compute fixed-width member name using left-justification.
+                    padded_name = member["name"].ljust(self.max_name_length)
                     name_btn = ui.Button(
                         label=padded_name,
                         style=ButtonStyle.secondary,
@@ -247,22 +247,3 @@ class WarView(ui.View):
                     print("Error updating view:", e)
             # Sleep until the next minute boundary to reduce update frequency.
             await asyncio.sleep(5)
-
-    def format_member_table(self) -> str:
-        """
-        Returns a formatted code block with a two-column table
-        listing all member names, using fixed-width formatting.
-        """
-        if not hasattr(self, "members") or not self.members:
-            return "No members."
-        max_name = self.max_name_length
-        total = len(self.members)
-        half = (total + 1) // 2
-        left = self.members[:half]
-        right = self.members[half:]
-        lines = []
-        for i in range(half):
-            left_name = f"{left[i]['name'] :^{max_name}}"
-            right_name = f"{right[i]['name'] :^{max_name}}" if i < len(right) else ""
-            lines.append(f"{left_name}   {right_name}")
-        return "```\n" + "\n".join(lines) + "\n```"

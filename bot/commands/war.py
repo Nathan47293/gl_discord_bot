@@ -164,8 +164,6 @@ class WarCog(commands.Cog):
             pool=self.bot.pool              # Pass the database connection pool
         )
         await view.populate()  # Dynamically populate the buttons
-        # Insert the formatted member table in the embed description
-        embed.description = view.format_member_table()
         await inter.followup.send(embed=embed, view=view)
         
 
