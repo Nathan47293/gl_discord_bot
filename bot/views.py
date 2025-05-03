@@ -261,26 +261,21 @@ class WarView(ui.View):
 
     # Updated callback to update only the pressed button and attach new last_attack timestamp
     def create_callback(self, member):
-        """
-        Factory function to create a unique callback for each button.
-        Records a new attack timestamp for 'member' and updates the button state:
-            - Inserts or updates war_attacks.last_attack to NOW().
-            - Sets the button into its cooldown appearance.
-            - Edits the original message to refresh the View.
-        """
         async def callback(interaction):
             try:
                 now = datetime.datetime.now(datetime.timezone.utc)
                 await interaction.response.defer()
-                # Immediately update the pressed button to "Attacking..."
+                
+                # Set attacking state without rebuilding view
                 for item in self.children:
                     if item.custom_id == f"war_atk:{member}":
                         item.label = "Attacking..."
                         item.style = ButtonStyle.danger
                         item.disabled = True
-                        item.is_attacking = True  # Custom attribute to track "Attacking..." state
                         break
                 await interaction.edit_original_response(view=self)
+                
+                # Do DB operation
                 await self.pool.execute(
                     """
                     INSERT INTO war_attacks(guild_id, member, last_attack)
@@ -290,18 +285,13 @@ class WarView(ui.View):
                     """,
                     self.guild_id, member
                 )
-                # Update only the pressed button and store its last_attack for live countdown
-                for item in self.children:
-                    if item.custom_id == f"war_atk:{member}":
-                        item.last_attack = now
-                        # Immediately show full cooldown in "Xhr 0min" format.
-                        item.label = f"{self.cd}hr"
-                        item.style = ButtonStyle.danger
-                        item.disabled = True
-                        del item.is_attacking  # Remove the "Attacking..." state
+                
+                # Now rebuild view to show cooldown
+                for member_entry in self.members:
+                    if member_entry["name"] == member:
+                        member_entry["last"] = now
                         break
                 self.rebuild_view()
-                # Single response update call at the end.
                 await interaction.edit_original_response(view=self)
             except Exception as e:
                 try:
@@ -315,14 +305,17 @@ class WarView(ui.View):
             try:
                 now = datetime.datetime.now(datetime.timezone.utc)
                 await interaction.response.defer()
+                
+                # Set attacking state without rebuilding view
                 for item in self.children:
                     if item.custom_id == f"war_col_atk:{ident}":
                         item.label = "Attacking..."
                         item.style = ButtonStyle.danger
                         item.disabled = True
-                        item.is_attacking = True  # Custom attribute to track "Attacking..." state
                         break
                 await interaction.edit_original_response(view=self)
+                
+                # Do DB operation
                 await self.pool.execute(
                     """
                     INSERT INTO war_attacks(guild_id, member, last_attack)
@@ -332,13 +325,11 @@ class WarView(ui.View):
                     """,
                     self.guild_id, ident
                 )
-                for item in self.children:
-                    if item.custom_id == f"war_col_atk:{ident}":
-                        item.last_attack = now
-                        item.label = f"{self.cd}hr"
-                        item.style = ButtonStyle.danger
-                        item.disabled = True
-                        del item.is_attacking  # Remove the "Attacking..." state
+                
+                # Now rebuild view to show cooldown
+                for colony in self.colonies:
+                    if colony["ident"] == ident:
+                        colony["last"] = now
                         break
                 self.rebuild_view()
                 await interaction.edit_original_response(view=self)
