@@ -32,6 +32,7 @@ class WarCog(commands.Cog):
         self.bot = bot
         # Store enemy alliance per guild when a new war is started via /attack.
         self.current_wars = {}
+        self.last_war_message = None
 
     async def get_war_embed_and_view(self, guild_id: str, own: str, target: str, full_view: bool = True) -> tuple[discord.Embed, any]:
         async with self.bot.pool.acquire() as conn:
@@ -144,9 +145,18 @@ class WarCog(commands.Cog):
             target = war_record["enemy_alliance"]
         else:
             target = war_record["enemy_alliance"]
- 
+        # Trim previous /war screen: update it to be like the attack page (i.e. no interactive view)
+        trimmed_embed, _ = await self.get_war_embed_and_view(str(inter.guild_id), own, target, full_view=False)
+        if self.last_war_message is not None:
+            try:
+                await self.last_war_message.edit(embed=trimmed_embed, view=None)
+            except Exception as e:
+                print(f"Error trimming previous war message: {e}")
+
+        # Now get the full interactive war view.
         embed, view = await self.get_war_embed_and_view(str(inter.guild_id), own, target)
-        await inter.followup.send(embed=embed, view=view)
+        msg = await inter.followup.send(embed=embed, view=view, wait=True)
+        self.last_war_message = msg
 
     @app_commands.command(
         name="endwar",
