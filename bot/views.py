@@ -77,7 +77,7 @@ class WarView(ui.View):
                     await interaction.response.defer()
                     self.current_page -= 1
                     await self.populate()
-                    await interaction.edit_original_message(view=self)
+                    await interaction.edit_original_response(view=self)
                 prev_btn.callback = prev_page
                 items.append(prev_btn)
             # Add page tracker as disabled button
@@ -98,7 +98,7 @@ class WarView(ui.View):
                     await interaction.response.defer()
                     self.current_page += 1
                     await self.populate()
-                    await interaction.edit_original_message(view=self)
+                    await interaction.edit_original_response(view=self)
                 next_btn.callback = next_page
                 items.append(next_btn)
             # Add these pagination items in row 0
