@@ -271,6 +271,7 @@ class WarView(ui.View):
         async def callback(interaction):
             try:
                 now = datetime.datetime.now(datetime.timezone.utc)
+                await interaction.response.defer()
                 # Immediately update the pressed button to "Attacking..."
                 for item in self.children:
                     if item.custom_id == f"war_atk:{member}":
@@ -278,7 +279,7 @@ class WarView(ui.View):
                         item.style = ButtonStyle.danger
                         item.disabled = True
                         break
-                # Removed first edit_message call to avoid duplicate response
+                await interaction.edit_original_response(view=self)
                 await self.pool.execute(
                     """
                     INSERT INTO war_attacks(guild_id, member, last_attack)
@@ -299,7 +300,7 @@ class WarView(ui.View):
                         break
                 self.rebuild_view()
                 # Single response update call at the end.
-                await interaction.response.edit_message(view=self)
+                await interaction.edit_original_response(view=self)
             except Exception as e:
                 try:
                     await interaction.followup.send(f"Error: {e}", ephemeral=True)
@@ -311,13 +312,14 @@ class WarView(ui.View):
         async def callback(interaction):
             try:
                 now = datetime.datetime.now(datetime.timezone.utc)
+                await interaction.response.defer()
                 for item in self.children:
                     if item.custom_id == f"war_col_atk:{ident}":
                         item.label = "Attacking..."
                         item.style = ButtonStyle.danger
                         item.disabled = True
                         break
-                # Removed first call to edit_message here.
+                await interaction.edit_original_response(view=self)
                 await self.pool.execute(
                     """
                     INSERT INTO war_attacks(guild_id, member, last_attack)
@@ -335,8 +337,7 @@ class WarView(ui.View):
                         item.disabled = True
                         break
                 self.rebuild_view()
-                # Single response update call at the end.
-                await interaction.response.edit_message(view=self)
+                await interaction.edit_original_response(view=self)
             except Exception as e:
                 try:
                     await interaction.followup.send(f"Error: {e}", ephemeral=True)
