@@ -467,55 +467,25 @@ class WarView(ui.View):
         
         while not self.is_finished():
             try:
-                updated = False
                 now = datetime.datetime.now(datetime.timezone.utc)
                 
                 war = await get_current_war(self.pool, self.guild_id)
                 if not war:
                     return
 
-                updated = await self.check_for_respawns(now) or False
+                # Check for any expired attacks in the database and handle them
+                any_expired = await self.check_for_respawns(now)
+                if any_expired:
+                    # Update the view after handling expired attacks
+                    await message.edit(view=self)
+                    continue
 
+                updated = False
                 for item in self.children:
                     if hasattr(item, 'last_attack'):
                         elapsed = (now - item.last_attack).total_seconds()
                         remaining = max(0, self.cd * 3600 - elapsed)
                         
-                        if remaining <= 0:
-                            custom_id = item.custom_id
-                            if custom_id.startswith("war_atk:"):
-                                member = custom_id.replace("war_atk:", "")
-                                await self.channel.send(f"✨ **{member}** has respawned!", allowed_mentions=None)
-                                await self.pool.execute(
-                                    "DELETE FROM war_attacks WHERE guild_id=$1 AND member=$2",
-                                    self.guild_id, member
-                                )
-                                for m in self.members:
-                                    if m["name"] == member:
-                                        m["last"] = None
-                                        break
-
-                            elif custom_id.startswith("war_col_atk:"):
-                                colony_id = custom_id.replace("war_col_atk:", "")
-                                for colony in self.colonies:
-                                    if colony["ident"] == colony_id:
-                                        await self.channel.send(
-                                            f"✨ Colony at **SB{colony['starbase']} ({colony['x']},{colony['y']})** has respawned!"
-                                        )
-                                        colony["last"] = None
-                                        break
-                                await self.pool.execute(
-                                    "DELETE FROM war_attacks WHERE guild_id=$1 AND member=$2",
-                                    self.guild_id, colony_id
-                                )
-
-                            item.label = "Attacked"
-                            item.style = ButtonStyle.primary
-                            item.disabled = False
-                            del item.last_attack
-                            updated = True
-                            continue
-
                         if remaining >= 3600:
                             hr = int(remaining // 3600)
                             mn = int((remaining % 3600) // 60)
