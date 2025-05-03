@@ -335,7 +335,20 @@ class WarView(ui.View):
                     elapsed = (now - item.last_attack).total_seconds()
                     remaining = max(0, self.cd * 3600 - elapsed)
                     if remaining <= 0:
-                        new_label = "Attack"
+                        # Find the name/identity of what respawned
+                        custom_id = item.custom_id
+                        if custom_id.startswith("war_atk:"):
+                            member_name = custom_id.replace("war_atk:", "")
+                            await message.channel.send(f"✨ **{member_name}** has respawned!")
+                        elif custom_id.startswith("war_col_atk:"):
+                            colony_id = custom_id.replace("war_col_atk:colony:", "")
+                            # Find colony info from cache
+                            for colony in self.colonies:
+                                if colony["ident"] == f"colony:{colony_id}":
+                                    await message.channel.send(f"✨ Colony at **SB{colony['starbase']} ({colony['x']},{colony['y']})** has respawned!")
+                                    break
+                        
+                        new_label = "Attacked"
                         item.style = ButtonStyle.primary
                         item.disabled = False
                         del item.last_attack
