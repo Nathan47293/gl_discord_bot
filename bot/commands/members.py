@@ -9,7 +9,8 @@ from ..db import (
     alliance_exists,  # Check if an alliance exists in the DB
     member_exists,    # Check if a member exists within a given alliance
     set_main_sb,      # Update a member's main starbase level
-    all_alliances     # Retrieve a list of all alliance names
+    all_alliances,    # Retrieve a list of all alliance names
+    ADMIN_PASS        # Admin password for protected commands
 )
 
 class MemberCog(commands.Cog):
@@ -122,7 +123,8 @@ class MemberCog(commands.Cog):
         inter: discord.Interaction,
         alliance: str,
         member: str,
-        sb: app_commands.Range[int, 1, 9]
+        sb: app_commands.Range[int, 1, 9],
+        password: str
     ):
         """
         /setmainsb <alliance> <member> <sb>
@@ -130,17 +132,16 @@ class MemberCog(commands.Cog):
         1) Validates the member exists.
         2) Updates main_sb in DB.
         """
+        # Verify admin password
+        if password != ADMIN_PASS:
+            return await inter.response.send_message("❌ Bad password.", ephemeral=True)
         # 1) Member must exist
         if not await member_exists(self.bot.pool, alliance, member):
-            return await inter.response.send_message(
-                "❌ Member not found.", ephemeral=True
-            )
+            return await inter.response.send_message("❌ Member not found.", ephemeral=True)
         # 2) Update the DB
         await set_main_sb(self.bot.pool, alliance, member, sb)
         # 3) Confirm to user
-        await inter.response.send_message(
-            f"✅ **{member}**’s main SB set to {sb}.", ephemeral=True
-        )
+        await inter.response.send_message(f"✅ **{member}**’s main SB set to {sb}.", ephemeral=True)
 
     @app_commands.command(
         name="removemember",
@@ -152,7 +153,8 @@ class MemberCog(commands.Cog):
         self,
         inter: discord.Interaction,
         alliance: str,
-        member: str
+        member: str,
+        password: str
     ):
         """
         /removemember <alliance> <member>
@@ -160,20 +162,19 @@ class MemberCog(commands.Cog):
         1) Validates member exists.
         2) Deletes from DB.
         """
+        # Verify admin password
+        if password != ADMIN_PASS:
+            return await inter.response.send_message("❌ Bad password.", ephemeral=True)
         # 1) Member must exist
         if not await member_exists(self.bot.pool, alliance, member):
-            return await inter.response.send_message(
-                "❌ Member not found.", ephemeral=True
-            )
+            return await inter.response.send_message("❌ Member not found.", ephemeral=True)
         # 2) Delete from DB
         await self.bot.pool.execute(
             "DELETE FROM members WHERE alliance=$1 AND member=$2",
             alliance, member
         )
         # 3) Confirm to user
-        await inter.response.send_message(
-            f"✅ Removed **{member}**.", ephemeral=True
-        )
+        await inter.response.send_message(f"✅ Removed **{member}**.", ephemeral=True)
 
     @app_commands.command(
         name="renamemember",
