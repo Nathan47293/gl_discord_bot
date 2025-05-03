@@ -278,6 +278,7 @@ class WarView(ui.View):
                         item.label = "Attacking..."
                         item.style = ButtonStyle.danger
                         item.disabled = True
+                        item.is_attacking = True  # Custom attribute to track "Attacking..." state
                         break
                 await interaction.edit_original_response(view=self)
                 await self.pool.execute(
@@ -297,6 +298,7 @@ class WarView(ui.View):
                         item.label = f"{self.cd}hr"
                         item.style = ButtonStyle.danger
                         item.disabled = True
+                        del item.is_attacking  # Remove the "Attacking..." state
                         break
                 self.rebuild_view()
                 # Single response update call at the end.
@@ -318,6 +320,7 @@ class WarView(ui.View):
                         item.label = "Attacking..."
                         item.style = ButtonStyle.danger
                         item.disabled = True
+                        item.is_attacking = True  # Custom attribute to track "Attacking..." state
                         break
                 await interaction.edit_original_response(view=self)
                 await self.pool.execute(
@@ -335,6 +338,7 @@ class WarView(ui.View):
                         item.label = f"{self.cd}hr"
                         item.style = ButtonStyle.danger
                         item.disabled = True
+                        del item.is_attacking  # Remove the "Attacking..." state
                         break
                 self.rebuild_view()
                 await interaction.edit_original_response(view=self)
@@ -352,6 +356,9 @@ class WarView(ui.View):
             updated = False
             now = datetime.datetime.now(datetime.timezone.utc)
             for item in self.children:
+                # Skip buttons in the "Attacking..." state
+                if hasattr(item, 'is_attacking') and item.is_attacking:
+                    continue
                 # Only update buttons with an active cooldown
                 if hasattr(item, 'last_attack'):
                     elapsed = (now - item.last_attack).total_seconds()
