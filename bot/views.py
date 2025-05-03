@@ -40,59 +40,83 @@ class WarView(ui.View):
               will record a new attack timestamp.
         """
         try:
-            # Retrieve the current war row
+            # Retrieve current war row
             war = await get_current_war(self.pool, self.guild_id)
             if not war:
                 raise ValueError("No active war found for this guild.")
 
-            # Fetch all members from the enemy alliance
-            members = await self.pool.fetch(
-                "SELECT member, main_sb FROM members"
-                " WHERE alliance=$1 ORDER BY main_sb DESC",
+            # Fetch enemy alliance members sorted by main starbase descending
+            members_data = await self.pool.fetch(
+                "SELECT member, main_sb FROM members WHERE alliance=$1 ORDER BY main_sb DESC",
                 war["enemy_alliance"]
             )
-            # Use offset-aware datetime
             now = datetime.datetime.now(datetime.timezone.utc)
 
-            for rec in members:
-                member_name = rec["member"]
-                # Fetch individual enemy's last_attack timestamp
+            members = []
+            for rec in members_data:
+                m_name = rec["member"]
                 last = await self.pool.fetchval(
                     "SELECT last_attack FROM war_attacks WHERE guild_id=$1 AND member=$2",
-                    self.guild_id, member_name
+                    self.guild_id, m_name
                 )
+                members.append({"name": m_name, "last": last})
 
-                if last:
-                    remaining = max(0, self.cd * 3600 - (now - last).total_seconds())
-                    if remaining >= 3600:
-                        hr = int(remaining // 3600)
-                        mn = int((remaining % 3600) // 60)
-                        # If minutes equals 0, display as full cooldown
-                        label = f"{self.cd}hr" if mn == 0 else f"{hr}hr {mn}min"
+            total = len(members)
+            num_columns = math.ceil(total / 13) if total > 0 else 1
+            max_rows = 13
+
+            # Clear existing items before repopulating
+            self.clear_items()
+
+            # Arrange members into columns (each column up to 13 members)
+            for row in range(max_rows):
+                for col in range(num_columns):
+                    index = col * 13 + row
+                    if index >= total:
+                        continue
+                    member = members[index]
+
+                    # Compute attack button label and style based on cooldown
+                    if member["last"]:
+                        elapsed = (now - member["last"]).total_seconds()
+                        remaining = max(0, self.cd * 3600 - elapsed)
+                        if remaining >= 3600:
+                            hr = int(remaining // 3600)
+                            mn = int((remaining % 3600) // 60)
+                            attack_label = f"{self.cd}hr" if mn == 0 else f"{hr}hr {mn}min"
+                        else:
+                            mn = int(math.ceil(remaining/60))
+                            attack_label = f"{mn}min"
+                        disabled = remaining > 0
+                        style = ButtonStyle.danger if remaining > 0 else ButtonStyle.primary
                     else:
-                        mn = int(math.ceil(remaining/60))
-                        label = f"{mn}min"
-                else:
-                    remaining = 0
-                    label = "Attack"
-                style = ButtonStyle.danger if remaining > 0 else ButtonStyle.primary
-                disabled = remaining > 0
+                        attack_label = "Attack"
+                        disabled = False
+                        style = ButtonStyle.primary
 
-                # Create the button
-                btn = ui.Button(
-                    label=label,
-                    style=style,
-                    custom_id=f"war_atk:{member_name}",
-                    disabled=disabled
-                )
+                    # Create disabled button for member name
+                    name_btn = ui.Button(
+                        label=member["name"],
+                        style=ButtonStyle.secondary,
+                        custom_id=f"label:{member['name']}",
+                        disabled=True,
+                        row=row
+                    )
 
-                # If on cooldown, attach the last_attack timestamp for live updates
-                if last:
-                    btn.last_attack = last
+                    # Create attack button
+                    attack_btn = ui.Button(
+                        label=attack_label,
+                        style=style,
+                        custom_id=f"war_atk:{member['name']}",
+                        disabled=disabled,
+                        row=row
+                    )
+                    if member["last"]:
+                        attack_btn.last_attack = member["last"]
+                    attack_btn.callback = self.create_callback(member["name"])
 
-                # Attach a unique callback
-                btn.callback = self.create_callback(member_name)
-                self.add_item(btn)
+                    self.add_item(name_btn)
+                    self.add_item(attack_btn)
         except Exception as e:
             print(f"Error populating WarView: {e}")
 
