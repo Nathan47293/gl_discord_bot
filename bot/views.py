@@ -46,9 +46,13 @@ class WarView(ui.View):
                         "SELECT last_attack FROM war_attacks WHERE guild_id=$1 AND member=$2",
                         self.guild_id, m_name
                     )
-                    self.members.append({"name": m_name, "last": last})
+                    self.members.append({
+                        "name": m_name,
+                        "last": last,
+                        "main_sb": rec["main_sb"]
+                    })
                 # Store maximum member name length for alignment.
-                self.max_name_length = max((len(m["name"]) for m in self.members), default=0)
+                self.max_name_length = max((len(f"{m['name']} SB{m['main_sb']}") for m in self.members), default=0)
             now = datetime.datetime.now(datetime.timezone.utc)
             members = self.members
 
@@ -128,7 +132,7 @@ class WarView(ui.View):
                     member = members[idx]
                     # Create the name button using the raw member name.
                     name_btn = ui.Button(
-                        label=member["name"],
+                        label=f"{member['name']} SB{member['main_sb']}",
                         style=ButtonStyle.secondary,
                         custom_id=f"label:{member['name']}",
                         disabled=True,
