@@ -340,11 +340,20 @@ class WarView(ui.View):
     # Remove the first start_countdown implementation and keep only this one
     async def start_countdown(self, message):
         import asyncio
-        print("Countdown task started")  # Debug log
+        print(f"Starting countdown task for guild {self.guild_id}")  # Debug log
+        await message.channel.send("✨ War tracker initialized - I will notify when targets respawn!")
+        
         while not self.is_finished():
             try:
                 updated = False
                 now = datetime.datetime.now(datetime.timezone.utc)
+                
+                # Print debug info about current state
+                war = await get_current_war(self.pool, self.guild_id)
+                if not war:
+                    print(f"No active war found for guild {self.guild_id}")
+                    return
+
                 for item in self.children:
                     if hasattr(item, 'last_attack'):
                         elapsed = (now - item.last_attack).total_seconds()
@@ -353,15 +362,15 @@ class WarView(ui.View):
                         if remaining <= 0:
                             custom_id = item.custom_id
                             try:
+                                channel = message.channel
+                                print(f"Channel for messages: {channel.id}")  # Debug log
+                                
                                 if custom_id.startswith("war_atk:"):
                                     member = custom_id.replace("war_atk:", "")
-                                    print(f"Attempting to send respawn message for {member}")  # Debug log
-                                    try:
-                                        await message.channel.send(f"✨ **{member}** has respawned!")
-                                        print(f"Successfully sent respawn message for {member}")  # Debug log
-                                    except Exception as e:
-                                        print(f"Failed to send message: {e}")  # Debug log
-                                        
+                                    print(f"Member {member} respawning in guild {self.guild_id}")  # Debug log
+                                    await channel.send(f"✨ **{member}** has respawned!", allowed_mentions=None)
+                                    
+                                    # Delete record and update cache
                                     await self.pool.execute(
                                         "DELETE FROM war_attacks WHERE guild_id=$1 AND member=$2",
                                         self.guild_id, member
@@ -372,23 +381,18 @@ class WarView(ui.View):
                                             break
 
                                 elif custom_id.startswith("war_col_atk:"):
-                                    member = custom_id.replace("war_col_atk:", "")
+                                    colony_id = custom_id.replace("war_col_atk:", "")
                                     for colony in self.colonies:
-                                        if colony["ident"] == member:
-                                            print(f"Attempting to send respawn message for colony {member}")  # Debug log
-                                            try:
-                                                await message.channel.send(
-                                                    f"✨ Colony at **SB{colony['starbase']} ({colony['x']},{colony['y']})** has respawned!"
-                                                )
-                                                print(f"Successfully sent respawn message for colony {member}")  # Debug log
-                                            except Exception as e:
-                                                print(f"Failed to send message: {e}")  # Debug log
+                                        if colony["ident"] == colony_id:
+                                            print(f"Colony {colony_id} respawning")  # Debug log
+                                            colony_msg = f"✨ Colony at **SB{colony['starbase']} ({colony['x']},{colony['y']})** has respawned!"
+                                            await channel.send(colony_msg, allowed_mentions=None)
                                             colony["last"] = None
                                             break
-                                            
+                                    
                                     await self.pool.execute(
                                         "DELETE FROM war_attacks WHERE guild_id=$1 AND member=$2",
-                                        self.guild_id, member
+                                        self.guild_id, colony_id
                                     )
 
                                 item.label = "Attacked"
@@ -396,9 +400,10 @@ class WarView(ui.View):
                                 item.disabled = False
                                 del item.last_attack
                                 updated = True
+                                print(f"Successfully processed respawn for {custom_id}")  # Debug log
 
                             except Exception as e:
-                                print(f"Error in cooldown completion: {e}")  # Debug log
+                                print(f"Error processing respawn: {e}")  # Debug log
                             continue
 
                         else:
