@@ -32,13 +32,18 @@ class WarView(ui.View):
             # Cache members list for faster pagination.
             if not hasattr(self, "members"):
                 war = await get_current_war(self.pool, self.guild_id)
-                if not war:
+                if war:
+                    enemy = war["enemy_alliance"]
+                elif hasattr(self, "enemy_alliance"):
+                    enemy = self.enemy_alliance
+                else:
                     raise ValueError("No active war found for this guild.")
                 members_data = await self.pool.fetch(
                     "SELECT member, main_sb FROM members WHERE alliance=$1 ORDER BY main_sb DESC",
-                    war["enemy_alliance"]
+                    enemy
                 )
-                now = datetime.datetime.now(datetime.timezone.utc)
+                # Store maximum member name length for alignment (including ' SBx').
+                self.max_name_length = max((len(f"{m['name']} SB{m['main_sb']}") for m in members_data), default=0)
                 self.members = []
                 for rec in members_data:
                     m_name = rec["member"]
@@ -51,8 +56,6 @@ class WarView(ui.View):
                         "last": last,
                         "main_sb": rec["main_sb"]
                     })
-                # Store maximum member name length for alignment.
-                self.max_name_length = max((len(f"{m['name']} SB{m['main_sb']}") for m in self.members), default=0)
             now = datetime.datetime.now(datetime.timezone.utc)
             members = self.members
 

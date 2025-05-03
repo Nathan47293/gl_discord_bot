@@ -63,6 +63,7 @@ class WarCog(commands.Cog):
             cooldown_hours=T_enemy,
             pool=self.bot.pool
         )
+        view.enemy_alliance = target
         await view.populate()
         return embed, view
 
