@@ -247,3 +247,22 @@ class WarView(ui.View):
                     print("Error updating view:", e)
             # Sleep until the next minute boundary to reduce update frequency.
             await asyncio.sleep(5)
+
+    def format_member_table(self) -> str:
+        """
+        Returns a formatted code block with a two-column table
+        listing all member names, centered using the cached max length.
+        """
+        if not hasattr(self, "members") or not self.members:
+            return "No members."
+        max_name = self.max_name_length
+        total = len(self.members)
+        half = (total + 1) // 2
+        left = self.members[:half]
+        right = self.members[half:]
+        lines = []
+        for i in range(half):
+            left_name = left[i]['name'].center(max_name)
+            right_name = right[i]['name'].center(max_name) if i < len(right) else ""
+            lines.append(f"{left_name}   {right_name}")
+        return "```\n" + "\n".join(lines) + "\n```"
