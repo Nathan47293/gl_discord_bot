@@ -273,6 +273,7 @@ class WarView(ui.View):
                         item.style = ButtonStyle.danger
                         item.disabled = True
                         break
+                self.rebuild_view()
                 await interaction.response.edit_message(view=self)
             except Exception as e:
                 await interaction.response.send_message(f"Error: {e}", ephemeral=True)
@@ -292,14 +293,13 @@ class WarView(ui.View):
                     self.guild_id, ident
                 )
                 for item in self.children:
-                    # Here we match using the pseudo identifier; adjust as needed.
                     if item.custom_id.startswith("war_col_atk:"):
-                        # (We cannot directly match ident due to custom_id construction; in practice, store ident in item.)
                         item.last_attack = now
                         item.label = f"{self.cd}hr"
                         item.style = ButtonStyle.danger
                         item.disabled = True
                         break
+                self.rebuild_view()
                 await interaction.response.edit_message(view=self)
             except Exception as e:
                 await interaction.response.send_message(f"Error: {e}", ephemeral=True)
