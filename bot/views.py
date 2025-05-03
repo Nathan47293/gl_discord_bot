@@ -65,7 +65,7 @@ class WarView(ui.View):
             # Clear existing items before repopulating
             self.clear_items()
 
-            # Row 0: Pagination controls (Previous, Page tracker, Next)
+            # Row 0: Pagination controls (Previous, Page tracker, Next, Refresh)
             items = []
             if self.current_page > 0:
                 prev_btn = ui.Button(
@@ -80,7 +80,6 @@ class WarView(ui.View):
                     await interaction.edit_original_response(view=self)
                 prev_btn.callback = prev_page
                 items.append(prev_btn)
-            # Add page tracker as disabled button
             tracker_btn = ui.Button(
                 label=f"Page {self.current_page+1}/{total_pages}",
                 style=ButtonStyle.secondary,
@@ -101,7 +100,19 @@ class WarView(ui.View):
                     await interaction.edit_original_response(view=self)
                 next_btn.callback = next_page
                 items.append(next_btn)
-            # Add these pagination items in row 0
+            # Add the refresh button always
+            refresh_btn = ui.Button(
+                label="Refresh",
+                style=ButtonStyle.secondary,
+                custom_id="pagination:refresh"
+            )
+            async def refresh_page(interaction):
+                await interaction.response.defer()
+                await self.populate()
+                await interaction.edit_original_response(view=self)
+            refresh_btn.callback = refresh_page
+            items.append(refresh_btn)
+
             for btn in items:
                 btn.row = 0
                 self.add_item(btn)
