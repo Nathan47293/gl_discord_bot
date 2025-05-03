@@ -85,10 +85,7 @@ class WarCog(commands.Cog):
         name="attack",
         description="Attack an enemy alliance: show respawn timers."
     )
-    @app_commands.autocomplete(target=lambda self, inter, current: [
-         app_commands.Choice(name=a, value=a) for a in (all_alliances(self.bot.pool) or [])
-         if current.lower() in a.lower()
-    ])
+    @app_commands.autocomplete(target=WarCog.target_autocomplete)
     async def attack(
         self,
         inter: discord.Interaction,
