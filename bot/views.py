@@ -50,72 +50,23 @@ class WarView(ui.View):
                 )
                 members.append({"name": m_name, "last": last})
 
-            # Due to Discord limitations, we only display 10 members per page (5 rows)
-            page_size = 10
+            # Set up pagination: 2 columns x 4 rows = 8 members per page
+            members_per_column = 4
+            columns = 2
+            page_size = members_per_column * columns
+            total_pages = math.ceil(len(members) / page_size) if members else 1
             self.current_page = getattr(self, "current_page", 0)
-            start = self.current_page * page_size
-            end = start + page_size
-            page_members = members[start:end]
+            # Ensure current_page is within bounds
+            if self.current_page < 0:
+                self.current_page = 0
+            elif self.current_page >= total_pages:
+                self.current_page = total_pages - 1
 
             # Clear existing items before repopulating
             self.clear_items()
 
-            # Each member gets a pair: one disabled name button and one attack button.
-            for member in page_members:
-                if member["last"]:
-                    elapsed = (now - member["last"]).total_seconds()
-                    remaining = max(0, self.cd * 3600 - elapsed)
-                    if remaining >= 3600:
-                        hr = int(remaining // 3600)
-                        mn = int((remaining % 3600) // 60)
-                        attack_label = f"{self.cd}hr" if mn == 0 else f"{hr}hr {mn}min"
-                    else:
-                        mn = int(math.ceil(remaining/60))
-                        attack_label = f"{mn}min"
-                    disabled = remaining > 0
-                    style = ButtonStyle.danger if disabled else ButtonStyle.primary
-                else:
-                    attack_label = "Attack"
-                    disabled = False
-                    style = ButtonStyle.primary
-
-                # Create disabled button for member name
-                name_btn = ui.Button(
-                    label=member["name"],
-                    style=ButtonStyle.secondary,
-                    custom_id=f"label:{member['name']}",
-                    disabled=True
-                )
-
-                # Create attack button
-                attack_btn = ui.Button(
-                    label=attack_label,
-                    style=style,
-                    custom_id=f"war_atk:{member['name']}",
-                    disabled=disabled
-                )
-                if member["last"]:
-                    attack_btn.last_attack = member["last"]
-                attack_btn.callback = self.create_callback(member["name"])
-
-                self.add_item(name_btn)
-                self.add_item(attack_btn)
-
-            # Add pagination if there are more pages
-            if end < len(members):
-                next_btn = ui.Button(
-                    label="Next",
-                    style=ButtonStyle.primary,
-                    custom_id="pagination:next"
-                )
-                async def next_page(interaction):
-                    self.current_page += 1
-                    await interaction.response.edit_message(view=self)
-                    await self.populate()  # Repopulate with the next page
-                next_btn.callback = next_page
-                self.add_item(next_btn)
-
-            # Optionally add a "Previous" button if not on the first page
+            # Row 0: Pagination controls (Previous, Page tracker, Next)
+            items = []
             if self.current_page > 0:
                 prev_btn = ui.Button(
                     label="Previous",
@@ -124,10 +75,85 @@ class WarView(ui.View):
                 )
                 async def prev_page(interaction):
                     self.current_page -= 1
-                    await interaction.response.edit_message(view=self)
                     await self.populate()
+                    await interaction.response.edit_message(view=self)
                 prev_btn.callback = prev_page
-                self.add_item(prev_btn)
+                items.append(prev_btn)
+            # Add page tracker as disabled button
+            tracker_btn = ui.Button(
+                label=f"Page {self.current_page+1}/{total_pages}",
+                style=ButtonStyle.secondary,
+                custom_id="pagination:tracker",
+                disabled=True
+            )
+            items.append(tracker_btn)
+            if self.current_page < total_pages - 1:
+                next_btn = ui.Button(
+                    label="Next",
+                    style=ButtonStyle.primary,
+                    custom_id="pagination:next"
+                )
+                async def next_page(interaction):
+                    self.current_page += 1
+                    await self.populate()
+                    await interaction.response.edit_message(view=self)
+                next_btn.callback = next_page
+                items.append(next_btn)
+            # Add these pagination items in row 0
+            for btn in items:
+                btn.row = 0
+                self.add_item(btn)
+
+            # Rows 1 to members_per_column: build grid of member pairs
+            for r in range(members_per_column):
+                # Prepare buttons for one row (each row will have 2 member pairs if available)
+                row_buttons = []
+                for c in range(columns):
+                    idx = self.current_page * page_size + (c * members_per_column + r)
+                    if idx >= len(members):
+                        continue
+                    member = members[idx]
+                    # Compute attack button details based on cooldown
+                    if member["last"]:
+                        elapsed = (now - member["last"]).total_seconds()
+                        remaining = max(0, self.cd * 3600 - elapsed)
+                        if remaining >= 3600:
+                            hr = int(remaining // 3600)
+                            mn = int((remaining % 3600) // 60)
+                            attack_label = f"{self.cd}hr" if mn == 0 else f"{hr}hr {mn}min"
+                        else:
+                            mn = int(math.ceil(remaining/60))
+                            attack_label = f"{mn}min"
+                        disabled = remaining > 0
+                        style = ButtonStyle.danger if disabled else ButtonStyle.primary
+                    else:
+                        attack_label = "Attack"
+                        disabled = False
+                        style = ButtonStyle.primary
+                    # Create a disabled name button
+                    name_btn = ui.Button(
+                        label=member["name"],
+                        style=ButtonStyle.secondary,
+                        custom_id=f"label:{member['name']}",
+                        disabled=True,
+                        row=r+1
+                    )
+                    # Create an attack button
+                    attack_btn = ui.Button(
+                        label=attack_label,
+                        style=style,
+                        custom_id=f"war_atk:{member['name']}",
+                        disabled=disabled,
+                        row=r+1
+                    )
+                    if member["last"]:
+                        attack_btn.last_attack = member["last"]
+                    attack_btn.callback = self.create_callback(member["name"])
+                    # Append both buttons for this member (maintaining order: name then attack)
+                    row_buttons.extend([name_btn, attack_btn])
+                # Add all buttons in the current row (Discord groups by same row index)
+                for btn in row_buttons:
+                    self.add_item(btn)
 
         except Exception as e:
             print(f"Error populating WarView: {e}")
