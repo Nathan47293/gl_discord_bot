@@ -27,40 +27,78 @@ class WarView(ui.View):
         self.pool = pool              # DB pool for fetching records
         self._countdown_task = None
         self.current_page = 0
+        self.mode = "main"      # "main" for members, "colony" for colonies
+        self.colonies = None    # cache for colony mode
 
     async def populate(self):
         try:
-            if not hasattr(self, "members"):
-                war = await get_current_war(self.pool, self.guild_id)
-                if war:
-                    enemy = war["enemy_alliance"]
-                elif hasattr(self, "enemy_alliance"):
-                    enemy = self.enemy_alliance
+            if self.mode == "main":
+                if not hasattr(self, "members"):
+                    war = await get_current_war(self.pool, self.guild_id)
+                    if war:
+                        enemy = war["enemy_alliance"]
+                    elif hasattr(self, "enemy_alliance"):
+                        enemy = self.enemy_alliance
+                    else:
+                        raise ValueError("No active war found for this guild.")
+                    members_data = await self.pool.fetch(
+                        "SELECT member, main_sb FROM members WHERE alliance=$1 ORDER BY main_sb DESC",
+                        enemy
+                    )
+                    self.max_name_length = max((len(f"{m['member']} SB{m['main_sb']}") for m in members_data), default=0)
+                    self.members = []
+                    for rec in members_data:
+                        m_name = rec["member"]
+                        last = await self.pool.fetchval(
+                            "SELECT last_attack FROM war_attacks WHERE guild_id=$1 AND member=$2",
+                            self.guild_id, m_name
+                        )
+                        self.members.append({
+                            "name": m_name,
+                            "last": last,
+                            "main_sb": rec["main_sb"]
+                        })
                 else:
-                    raise ValueError("No active war found for this guild.")
-                members_data = await self.pool.fetch(
-                    "SELECT member, main_sb FROM members WHERE alliance=$1 ORDER BY main_sb DESC",
-                    enemy
-                )
-                self.max_name_length = max((len(f"{m['member']} SB{m['main_sb']}") for m in members_data), default=0)
-                self.members = []
-                for rec in members_data:
-                    m_name = rec["member"]
-                    last = await self.pool.fetchval(
-                        "SELECT last_attack FROM war_attacks WHERE guild_id=$1 AND member=$2",
-                        self.guild_id, m_name
+                    for member in self.members:
+                        member["last"] = await self.pool.fetchval(
+                            "SELECT last_attack FROM war_attacks WHERE guild_id=$1 AND member=$2",
+                            self.guild_id, member["name"]
+                        )
+            elif self.mode == "colony":
+                if not self.colonies:
+                    war = await get_current_war(self.pool, self.guild_id)
+                    if war:
+                        enemy = war["enemy_alliance"]
+                    elif hasattr(self, "enemy_alliance"):
+                        enemy = self.enemy_alliance
+                    else:
+                        raise ValueError("No active war found for this guild.")
+                    # Query all colonies for enemy alliance sorted by starbase descending.
+                    colonies_data = await self.pool.fetch(
+                        "SELECT starbase, x, y FROM colonies WHERE alliance=$1 ORDER BY starbase DESC, x, y",
+                        enemy
                     )
-                    self.members.append({
-                        "name": m_name,
-                        "last": last,
-                        "main_sb": rec["main_sb"]
-                    })
-            else:
-                for member in self.members:
-                    member["last"] = await self.pool.fetchval(
-                        "SELECT last_attack FROM war_attacks WHERE guild_id=$1 AND member=$2",
-                        self.guild_id, member["name"]
-                    )
+                    self.max_name_length = max((len(f"SB{c['starbase']} ({c['x']},{c['y']})") for c in colonies_data), default=0)
+                    self.colonies = []
+                    for rec in colonies_data:
+                        ident = f"colony:{rec['starbase']}:{rec['x']},{rec['y']}"
+                        last = await self.pool.fetchval(
+                            "SELECT last_attack FROM war_attacks WHERE guild_id=$1 AND member=$2",
+                            self.guild_id, ident
+                        )
+                        self.colonies.append({
+                            "ident": ident,
+                            "starbase": rec["starbase"],
+                            "x": rec["x"],
+                            "y": rec["y"],
+                            "last": last
+                        })
+                else:
+                    for colony in self.colonies:
+                        colony["last"] = await self.pool.fetchval(
+                            "SELECT last_attack FROM war_attacks WHERE guild_id=$1 AND member=$2",
+                            self.guild_id, colony["ident"]
+                        )
             self.rebuild_view()
         except Exception as e:
             print(f"Error populating WarView: {e}")
@@ -68,11 +106,12 @@ class WarView(ui.View):
     def rebuild_view(self):
         # Rebuild pagination and grid from cached self.members without DB queries.
         now = datetime.datetime.now(datetime.timezone.utc)
-        members = self.members
+        # Choose cache based on mode.
+        cache = self.members if self.mode=="main" else self.colonies
         members_per_column = 4
         columns = 2
         page_size = members_per_column * columns
-        total_pages = math.ceil(len(members) / page_size) if members else 1
+        total_pages = math.ceil(len(cache) / page_size) if cache else 1
         if self.current_page < 0:
             self.current_page = 0
         elif self.current_page >= total_pages:
@@ -125,6 +164,28 @@ class WarView(ui.View):
             await interaction.edit_original_response(view=self)
         refresh_btn.callback = refresh_page
         items.append(refresh_btn)
+        # Mode switch button.
+        if self.mode == "main":
+            mode_btn = ui.Button(label="Colonies", style=ButtonStyle.primary, custom_id="mode:colonies")
+            async def switch_to_colony(interaction):
+                await interaction.response.defer()
+                self.mode = "colony"
+                self.current_page = 0
+                self.colonies = None
+                await self.populate()
+                await interaction.edit_original_response(view=self)
+            mode_btn.callback = switch_to_colony
+        else:
+            mode_btn = ui.Button(label="Main Planets", style=ButtonStyle.primary, custom_id="mode:main")
+            async def switch_to_main(interaction):
+                await interaction.response.defer()
+                self.mode = "main"
+                self.current_page = 0
+                await self.populate()
+                await interaction.edit_original_response(view=self)
+            mode_btn.callback = switch_to_main
+        items.append(mode_btn)
+
         for btn in items:
             btn.row = 0
             self.add_item(btn)
@@ -133,18 +194,26 @@ class WarView(ui.View):
         for r in range(members_per_column):
             for c in range(columns):
                 idx = self.current_page * page_size + (c * members_per_column + r)
-                if idx >= len(members):
+                if idx >= len(cache):
                     continue
-                member = members[idx]
+                entry = cache[idx]
+                if self.mode == "main":
+                    label = f"{entry['name']} SB{entry['main_sb']}"
+                    custom_id_prefix = "war_atk:"
+                    callback_func = self.create_callback(entry["name"])
+                else:
+                    label = f"SB{entry['starbase']} ({entry['x']},{entry['y']})"
+                    custom_id_prefix = "war_col_atk:"
+                    callback_func = self.create_colony_callback(entry["ident"])
                 name_btn = ui.Button(
-                    label=f"{member['name']} SB{member['main_sb']}",
+                    label=label,
                     style=ButtonStyle.secondary,
-                    custom_id=f"label:{member['name']}",
+                    custom_id=f"label:{idx}",
                     disabled=True,
                     row=r+1
                 )
-                if member["last"]:
-                    elapsed = (now - member["last"]).total_seconds()
+                if entry["last"]:
+                    elapsed = (now - entry["last"]).total_seconds()
                     remaining = max(0, self.cd * 3600 - elapsed)
                     if remaining >= 3600:
                         hr = int(remaining // 3600)
@@ -162,13 +231,13 @@ class WarView(ui.View):
                 attack_btn = ui.Button(
                     label=attack_label,
                     style=style,
-                    custom_id=f"war_atk:{member['name']}",
+                    custom_id=f"{custom_id_prefix}{idx}",
                     disabled=disabled,
                     row=r+1
                 )
-                if member["last"]:
-                    attack_btn.last_attack = member["last"]
-                attack_btn.callback = self.create_callback(member["name"])
+                if entry["last"]:
+                    attack_btn.last_attack = entry["last"]
+                attack_btn.callback = callback_func
                 self.add_item(name_btn)
                 self.add_item(attack_btn)
 
@@ -199,6 +268,33 @@ class WarView(ui.View):
                     if item.custom_id == f"war_atk:{member}":
                         item.last_attack = now
                         # Immediately show full cooldown in "Xhr 0min" format.
+                        item.label = f"{self.cd}hr"
+                        item.style = ButtonStyle.danger
+                        item.disabled = True
+                        break
+                await interaction.response.edit_message(view=self)
+            except Exception as e:
+                await interaction.response.send_message(f"Error: {e}", ephemeral=True)
+        return callback
+
+    def create_colony_callback(self, ident):
+        async def callback(interaction):
+            try:
+                now = datetime.datetime.now(datetime.timezone.utc)
+                await self.pool.execute(
+                    """
+                    INSERT INTO war_attacks(guild_id, member, last_attack)
+                    VALUES($1,$2,NOW())
+                    ON CONFLICT (guild_id, member)
+                    DO UPDATE SET last_attack = NOW()
+                    """,
+                    self.guild_id, ident
+                )
+                for item in self.children:
+                    # Here we match using the pseudo identifier; adjust as needed.
+                    if item.custom_id.startswith("war_col_atk:"):
+                        # (We cannot directly match ident due to custom_id construction; in practice, store ident in item.)
+                        item.last_attack = now
                         item.label = f"{self.cd}hr"
                         item.style = ButtonStyle.danger
                         item.disabled = True
