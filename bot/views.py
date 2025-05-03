@@ -334,42 +334,48 @@ class WarView(ui.View):
                 if hasattr(item, 'last_attack'):
                     elapsed = (now - item.last_attack).total_seconds()
                     remaining = max(0, self.cd * 3600 - elapsed)
+                    
+                    # First check if cooldown is over and delete from DB if so
                     if remaining <= 0:
-                        # Find the name/identity of what respawned
                         custom_id = item.custom_id
-                        # Remove the war_attacks record when cooldown expires
+                        member = None
+                        
                         if custom_id.startswith("war_atk:"):
-                            member_name = custom_id.replace("war_atk:", "")
-                            await self.pool.execute(
-                                "DELETE FROM war_attacks WHERE guild_id=$1 AND member=$2",
-                                self.guild_id, member_name
-                            )
-                            await message.channel.send(f"✨ **{member_name}** has respawned!")
+                            member = custom_id.replace("war_atk:", "")
+                            await message.channel.send(f"✨ **{member}** has respawned!")
                         elif custom_id.startswith("war_col_atk:"):
-                            colony_id = custom_id.replace("war_col_atk:", "")
-                            await self.pool.execute(
-                                "DELETE FROM war_attacks WHERE guild_id=$1 AND member=$2",
-                                self.guild_id, colony_id
-                            )
+                            member = custom_id.replace("war_col_atk:", "")
                             for colony in self.colonies:
-                                if colony["ident"] == colony_id:
+                                if colony["ident"] == member:
                                     await message.channel.send(f"✨ Colony at **SB{colony['starbase']} ({colony['x']},{colony['y']})** has respawned!")
                                     break
-                        item.label = "Attacked"  # Set label before deletion of last_attack
+                        
+                        # Delete the war_attack record
+                        if member:
+                            await self.pool.execute(
+                                "DELETE FROM war_attacks WHERE guild_id=$1 AND member=$2",
+                                self.guild_id, member
+                            )
+                        
+                        # Reset button state
+                        item.label = "Attacked"
                         item.style = ButtonStyle.primary
                         item.disabled = False
-                        new_label = item.label  # Use the same "Attacked" label
+                        new_label = item.label
                         del item.last_attack
+                        updated = True
+                        continue  # Skip to next item
+                        
+                    # Otherwise update the countdown
+                    if remaining >= 3600:
+                        hr = int(remaining // 3600)
+                        mn = int((remaining % 3600) // 60)
+                        new_label = f"{self.cd}hr" if mn == 0 else f"{hr}hr {mn}min"
                     else:
-                        if remaining >= 3600:
-                            hr = int(remaining // 3600)
-                            mn = int((remaining % 3600) // 60)
-                            new_label = f"{self.cd}hr" if mn == 0 else f"{hr}hr {mn}min"
-                        else:
-                            mn = int(math.ceil(remaining/60))
-                            new_label = f"{mn}min"
-                        item.style = ButtonStyle.danger
-                        item.disabled = True
+                        mn = int(math.ceil(remaining/60))
+                        new_label = f"{mn}min"
+                    item.style = ButtonStyle.danger
+                    item.disabled = True
                     if new_label != item.label:
                         item.label = new_label
                         updated = True

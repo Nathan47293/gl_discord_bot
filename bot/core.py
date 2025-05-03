@@ -30,7 +30,8 @@ if not DATABASE:
 # `default()` gives you non-privileged intents (guilds, members, messages, etc.),
 # without message content. If you need message content, you'd enable it here.
 intents = discord.Intents.default()
-
+intents.message_content = True
+intents.members = True
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Main Bot Class Definition
