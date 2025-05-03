@@ -152,6 +152,10 @@ class WarCog(commands.Cog):
         embed.add_field(
             name="★ Enemy WP/Raid", value=f"{own_wp:,}", inline=True
         )
+        # Add an extra blank field so both rows have three inline fields.
+        embed.add_field(
+            name="\u200b", value="\u200b", inline=True
+        )
 
         # 9) Send the embed; optionally mount your WarView here
         view = WarView(
