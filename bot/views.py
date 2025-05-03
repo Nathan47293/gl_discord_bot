@@ -354,14 +354,9 @@ class WarView(ui.View):
                         item.disabled = False
                         del item.last_attack
                     else:
-                        if remaining >= 3600:
-                            hr = int(remaining // 3600)
-                            mn = int((remaining % 3600) // 60)
-                            # If minutes equals 0, display as full cooldown.
-                            new_label = f"{self.cd}hr" if mn == 0 else f"{hr}hr {mn}min"
-                        else:
-                            mn = int(math.ceil(remaining/60))
-                            new_label = f"{mn}min"
+                        # For 5 minute testing, always show minutes
+                        mn = int(math.ceil(remaining/60))
+                        new_label = f"{mn}min"
                         item.style = ButtonStyle.danger
                         item.disabled = True
                     if new_label != item.label:
