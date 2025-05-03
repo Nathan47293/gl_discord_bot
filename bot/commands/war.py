@@ -145,10 +145,10 @@ class WarCog(commands.Cog):
         embed.add_field(name="\u200b", value="\u200b", inline=False)
         # Add WP/Raid stats beneath their respective cooldowns
         embed.add_field(
-            name="⭐ WP/Raid", value=f"{own_wp:,}", inline=True
+            name="⭐ WP/Raid", value=f"{enemy_wp:,}", inline=True
         )
         embed.add_field(
-            name="★ Enemy WP/Raid", value=f"{enemy_wp:,}", inline=True
+            name="★ Enemy WP/Raid", value=f"{own_wp:,}", inline=True
         )
 
         # 9) Send the embed; optionally mount your WarView here
