@@ -333,7 +333,8 @@ class WarView(ui.View):
                 # Only update buttons with an active cooldown
                 if hasattr(item, 'last_attack'):
                     elapsed = (now - item.last_attack).total_seconds()
-                    remaining = max(0, self.cd * 3600 - elapsed)
+                    # TEMPORARY: Convert 5 minutes to seconds (300) instead of hours
+                    remaining = max(0, 300 - elapsed)
                     if remaining <= 0:
                         # Find the name/identity of what respawned
                         custom_id = item.custom_id
