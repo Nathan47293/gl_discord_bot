@@ -129,14 +129,22 @@ class WarCog(commands.Cog):
             return await inter.followup.send("❌ Set your alliance first with /setalliance.", ephemeral=True)
         # Retrieve the current war record.
         war_record = await get_current_war(self.bot.pool, str(inter.guild_id))
-        if war_record:
-            target = war_record["enemy_alliance"]
-        else:
+        if not war_record:
             # Fallback: look up stored enemy alliance from /attack.
             target = self.current_wars.get(str(inter.guild_id))
             if not target:
                 return await inter.followup.send("❌ No active war.", ephemeral=True)
-
+            # Create a new war record so that button callbacks pass the FK check.
+            await self.bot.pool.execute(
+                "INSERT INTO wars(guild_id, enemy_alliance) VALUES($1, $2)",
+                str(inter.guild_id), target
+            )
+            # Re-fetch the war record.
+            war_record = await get_current_war(self.bot.pool, str(inter.guild_id))
+            target = war_record["enemy_alliance"]
+        else:
+            target = war_record["enemy_alliance"]
+ 
         embed, view = await self.get_war_embed_and_view(str(inter.guild_id), own, target)
         await inter.followup.send(embed=embed, view=view)
 
