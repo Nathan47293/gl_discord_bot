@@ -129,7 +129,11 @@ class WarView(ui.View):
                         continue
                     member = members[idx]
                     # Compute fixed-width member name using left-justification.
-                    padded_name = member["name"].ljust(self.max_name_length)
+                    if c == 0:
+                        padded_name = member["name"].ljust(self.max_name_length)
+                    else:
+                        # Prepend three EM spaces (U+2003) for a fixed left offset in column 2.
+                        padded_name = "\u2003" * 3 + member["name"]
                     name_btn = ui.Button(
                         label=padded_name,
                         style=ButtonStyle.secondary,
