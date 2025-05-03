@@ -75,6 +75,12 @@ class WarView(ui.View):
                 )
                 async def prev_page(interaction):
                     await interaction.response.defer()
+                    # Set pagination buttons to waiting state
+                    for btn in self.children:
+                        if btn.custom_id in ("pagination:prev", "pagination:tracker", "pagination:next"):
+                            btn.disabled = True
+                    prev_btn.label = "Loading..."
+                    await interaction.edit_original_response(view=self)
                     self.current_page -= 1
                     await self.populate()
                     await interaction.edit_original_response(view=self)
@@ -96,6 +102,12 @@ class WarView(ui.View):
                 )
                 async def next_page(interaction):
                     await interaction.response.defer()
+                    # Set pagination buttons to waiting state
+                    for btn in self.children:
+                        if btn.custom_id in ("pagination:prev", "pagination:tracker", "pagination:next"):
+                            btn.disabled = True
+                    next_btn.label = "Loading..."
+                    await interaction.edit_original_response(view=self)
                     self.current_page += 1
                     await self.populate()
                     await interaction.edit_original_response(view=self)
