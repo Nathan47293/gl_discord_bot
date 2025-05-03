@@ -170,16 +170,15 @@ class WarView(ui.View):
             mode_btn = ui.Button(label="Colonies", style=ButtonStyle.primary, custom_id="mode:colonies")
             async def switch_to_colony(interaction):
                 await interaction.response.defer()
-                # Temporarily disable all buttons and set label to "Loading..."
-                for item in self.children:
-                    item.disabled = True
-                    if hasattr(item, "label"):
-                        item.label = "Loading..."
-                await interaction.edit_original_response(view=self)
                 self.mode = "colony"
                 self.current_page = 0
-                # Use cached colonies if available; otherwise, populate (which might take longer)
                 if not self.colonies:
+                    # Show loading only the first time
+                    for item in self.children:
+                        item.disabled = True
+                        if hasattr(item, "label"):
+                            item.label = "Loading..."
+                    await interaction.edit_original_response(view=self)
                     await self.populate()
                 else:
                     self.rebuild_view()
