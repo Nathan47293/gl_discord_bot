@@ -134,20 +134,21 @@ class WarCog(commands.Cog):
             title=f"War! **{own}** vs **{target}**",
             color=discord.Color.red()
         )
-        # Add inline fields for the two cooldowns
+        # Arrange fields so that enemy WP/Raid is below attacking and WP/Raid is to the right of defending.
+        # Row 1: Attacking cooldown (occupies full row)
         embed.add_field(
-            name="⚔️ Attacking cooldown", value=f"{T_enemy} hours", inline=True
+            name="⚔️ Attacking cooldown", value=f"{T_enemy} hours", inline=False
         )
+        # Row 2: Enemy WP/Raid (occupies full row)
+        embed.add_field(
+            name="★ Enemy WP/Raid", value=f"{own_wp:,}", inline=False
+        )
+        # Row 3: Defending cooldown and WP/Raid side by side on the same row
         embed.add_field(
             name="🛡️ Defending cooldown", value=f"{T_you} hours", inline=True
         )
-        # Add WP/Raid stats beneath their respective cooldowns
-        # Swap warpoints values: enemy_wp goes to WP/Raid and own_wp to Enemy WP/Raid
         embed.add_field(
             name="⭐ WP/Raid", value=f"{enemy_wp:,}", inline=True
-        )
-        embed.add_field(
-            name="★ Enemy WP/Raid", value=f"{own_wp:,}", inline=True
         )
 
         # 9) Send the embed; optionally mount your WarView here
