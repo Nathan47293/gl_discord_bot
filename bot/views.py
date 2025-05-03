@@ -33,6 +33,16 @@ class WarView(ui.View):
 
     async def populate(self):
         try:
+            # First, clean up any expired attacks in the database
+            await self.pool.execute(
+                """
+                DELETE FROM war_attacks 
+                WHERE guild_id=$1 
+                AND EXTRACT(EPOCH FROM (NOW() - last_attack)) >= $2
+                """,
+                self.guild_id, self.cd * 3600
+            )
+
             if self.mode == "main":
                 if not self.members:
                     war = await get_current_war(self.pool, self.guild_id)
@@ -105,10 +115,17 @@ class WarView(ui.View):
             print(f"Error populating WarView: {e}")
 
     def rebuild_view(self):
-        # Rebuild pagination and grid from cached self.members without DB queries.
         now = datetime.datetime.now(datetime.timezone.utc)
-        # Choose cache based on mode.
         cache = self.members if self.mode=="main" else self.colonies
+
+        # Remove expired attacks from our local cache
+        for entry in cache:
+            if entry["last"]:
+                elapsed = (now - entry["last"]).total_seconds()
+                if elapsed >= self.cd * 3600:
+                    entry["last"] = None
+
+        # Rebuild pagination and grid from cached self.members without DB queries.
         members_per_column = 4
         columns = 2
         page_size = members_per_column * columns
