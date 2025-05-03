@@ -43,7 +43,7 @@ class WarView(ui.View):
                     enemy
                 )
                 # Store maximum member name length for alignment (including ' SBx').
-                self.max_name_length = max((len(f"{m['name']} SB{m['main_sb']}") for m in members_data), default=0)
+                self.max_name_length = max((len(f"{m['member']} SB{m['main_sb']}") for m in members_data), default=0)
                 self.members = []
                 for rec in members_data:
                     m_name = rec["member"]
