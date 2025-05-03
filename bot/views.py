@@ -217,6 +217,7 @@ class WarView(ui.View):
                     label = f"SB{entry['starbase']} ({entry['x']},{entry['y']})"
                     custom_id_prefix = "war_col_atk:"
                     callback_func = self.create_colony_callback(entry["ident"])
+                # Name button remains unchanged
                 name_btn = ui.Button(
                     label=label,
                     style=ButtonStyle.secondary,
@@ -224,6 +225,11 @@ class WarView(ui.View):
                     disabled=True,
                     row=r+1
                 )
+                # For attack button, use member name if in main mode
+                if self.mode == "main":
+                    attack_custom_id = f"{custom_id_prefix}{entry['name']}"
+                else:
+                    attack_custom_id = f"{custom_id_prefix}{entry['ident']}"
                 if entry["last"]:
                     elapsed = (now - entry["last"]).total_seconds()
                     remaining = max(0, self.cd * 3600 - elapsed)
@@ -243,7 +249,7 @@ class WarView(ui.View):
                 attack_btn = ui.Button(
                     label=attack_label,
                     style=style,
-                    custom_id=f"{custom_id_prefix}{entry['ident']}",
+                    custom_id=attack_custom_id,
                     disabled=disabled,
                     row=r+1
                 )
