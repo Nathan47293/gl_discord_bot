@@ -355,12 +355,17 @@ class WarView(ui.View):
                             try:
                                 if custom_id.startswith("war_atk:"):
                                     member = custom_id.replace("war_atk:", "")
-                                    print(f"Deleting record for {member}")  # Debug log
+                                    print(f"Attempting to send respawn message for {member}")  # Debug log
+                                    try:
+                                        await message.channel.send(f"✨ **{member}** has respawned!")
+                                        print(f"Successfully sent respawn message for {member}")  # Debug log
+                                    except Exception as e:
+                                        print(f"Failed to send message: {e}")  # Debug log
+                                        
                                     await self.pool.execute(
                                         "DELETE FROM war_attacks WHERE guild_id=$1 AND member=$2",
                                         self.guild_id, member
                                     )
-                                    await message.channel.send(f"✨ **{member}** has respawned!")
                                     for m in self.members:
                                         if m["name"] == member:
                                             m["last"] = None
@@ -368,24 +373,30 @@ class WarView(ui.View):
 
                                 elif custom_id.startswith("war_col_atk:"):
                                     member = custom_id.replace("war_col_atk:", "")
-                                    print(f"Deleting record for colony {member}")  # Debug log
+                                    for colony in self.colonies:
+                                        if colony["ident"] == member:
+                                            print(f"Attempting to send respawn message for colony {member}")  # Debug log
+                                            try:
+                                                await message.channel.send(
+                                                    f"✨ Colony at **SB{colony['starbase']} ({colony['x']},{colony['y']})** has respawned!"
+                                                )
+                                                print(f"Successfully sent respawn message for colony {member}")  # Debug log
+                                            except Exception as e:
+                                                print(f"Failed to send message: {e}")  # Debug log
+                                            colony["last"] = None
+                                            break
+                                            
                                     await self.pool.execute(
                                         "DELETE FROM war_attacks WHERE guild_id=$1 AND member=$2",
                                         self.guild_id, member
                                     )
-                                    for colony in self.colonies:
-                                        if colony["ident"] == member:
-                                            await message.channel.send(
-                                                f"✨ Colony at **SB{colony['starbase']} ({colony['x']},{colony['y']})** has respawned!"
-                                            )
-                                            colony["last"] = None
-                                            break
-                                
+
                                 item.label = "Attacked"
                                 item.style = ButtonStyle.primary
                                 item.disabled = False
                                 del item.last_attack
                                 updated = True
+
                             except Exception as e:
                                 print(f"Error in cooldown completion: {e}")  # Debug log
                             continue
