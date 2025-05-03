@@ -33,7 +33,7 @@ class WarCog(commands.Cog):
         # Store enemy alliance per guild when a new war is started via /attack.
         self.current_wars = {}
 
-    async def get_war_embed_and_view(self, guild_id: str, own: str, target: str) -> tuple[discord.Embed, WarView]:
+    async def get_war_embed_and_view(self, guild_id: str, own: str, target: str, full_view: bool = True) -> tuple[discord.Embed, any]:
         async with self.bot.pool.acquire() as conn:
             A = await conn.fetchval("SELECT COUNT(*) FROM members WHERE alliance=$1", own)
             E = await conn.fetchval("SELECT COUNT(*) FROM members WHERE alliance=$1", target)
@@ -66,8 +66,11 @@ class WarCog(commands.Cog):
             pool=self.bot.pool
         )
         view.enemy_alliance = target
-        await view.populate()
-        return embed, view
+        if full_view:
+            await view.populate()
+            return embed, view
+        else:
+            return embed, None
 
     @app_commands.command(
         name="attack",
@@ -101,8 +104,8 @@ class WarCog(commands.Cog):
         # Defer the response to allow extra processing time.
         await inter.response.defer()
 
-        embed, view = await self.get_war_embed_and_view(str(inter.guild_id), own, target)
-        await inter.followup.send(embed=embed, view=view)
+        embed, _ = await self.get_war_embed_and_view(str(inter.guild_id), own, target, full_view=False)
+        await inter.followup.send(embed=embed)
 
     @app_commands.command(
         name="war",
