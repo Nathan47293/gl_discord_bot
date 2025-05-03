@@ -62,29 +62,44 @@ class WarView(ui.View):
                 self.guild_id, self.cd * 3600
             )
 
-            # Store channel reference for messages
-            self.message_channel = getattr(self, 'message', None)
-            if self.message_channel:
-                self.message_channel = self.message_channel.channel
-
-            if expired and self.message_channel:
+            if expired:
+                # Update both the database and our local cache
                 for record in expired:
                     member = record['member']
                     if member.startswith('colony:'):
                         for colony in self.colonies:
                             if colony["ident"] == member:
-                                await self.message_channel.send(
-                                    f"✨ Colony at **SB{colony['starbase']} ({colony['x']},{colony['y']})** has respawned!"
-                                )
+                                if hasattr(self, 'channel'):
+                                    await self.channel.send(
+                                        f"✨ Colony at **SB{colony['starbase']} ({colony['x']},{colony['y']})** has respawned!"
+                                    )
+                                colony["last"] = None
                                 break
                     else:
-                        await self.message_channel.send(f"✨ **{member}** has respawned!")
+                        if hasattr(self, 'channel'):
+                            await self.channel.send(f"✨ **{member}** has respawned!")
+                        for m in self.members:
+                            if m["name"] == member:
+                                m["last"] = None
+                                break
 
-            # Clean up expired attacks
-            await self.pool.execute(
-                "DELETE FROM war_attacks WHERE guild_id=$1 AND EXTRACT(EPOCH FROM (NOW() - last_attack)) >= $2",
-                self.guild_id, self.cd * 3600
-            )
+                # Delete all expired attacks at once
+                await self.pool.execute(
+                    "DELETE FROM war_attacks WHERE guild_id=$1 AND member=ANY($2)",
+                    self.guild_id, [r['member'] for r in expired]
+                )
+
+                # Update all active views
+                if hasattr(self, 'parent_cog'):
+                    for view in self.parent_cog.active_views.values():
+                        if view != self:
+                            await view.rebuild_view()
+
+            # Continue with normal population...
+            # Store channel reference for messages
+            self.message_channel = getattr(self, 'message', None)
+            if self.message_channel:
+                self.message_channel = self.message_channel.channel
 
             if self.mode == "main":
                 if not self.members:
