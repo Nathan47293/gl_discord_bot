@@ -170,9 +170,15 @@ class WarView(ui.View):
             mode_btn = ui.Button(label="Colonies", style=ButtonStyle.primary, custom_id="mode:colonies")
             async def switch_to_colony(interaction):
                 await interaction.response.defer()
+                # Temporarily disable all buttons and set label to "Loading..."
+                for item in self.children:
+                    item.disabled = True
+                    if hasattr(item, "label"):
+                        item.label = "Loading..."
+                await interaction.edit_original_response(view=self)
                 self.mode = "colony"
                 self.current_page = 0
-                # If colonies are already cached, use them; otherwise, populate.
+                # Use cached colonies if available; otherwise, populate (which might take longer)
                 if not self.colonies:
                     await self.populate()
                 else:
@@ -260,6 +266,14 @@ class WarView(ui.View):
         async def callback(interaction):
             try:
                 now = datetime.datetime.now(datetime.timezone.utc)
+                # Immediately update the pressed button to "Attacking..."
+                for item in self.children:
+                    if item.custom_id == f"war_atk:{member}":
+                        item.label = "Attacking..."
+                        item.style = ButtonStyle.danger
+                        item.disabled = True
+                        break
+                await interaction.response.edit_message(view=self)
                 # Upsert the last_attack time in war_attacks
                 await self.pool.execute(
                     """
@@ -289,6 +303,14 @@ class WarView(ui.View):
         async def callback(interaction):
             try:
                 now = datetime.datetime.now(datetime.timezone.utc)
+                for item in self.children:
+                    if item.custom_id.startswith("war_col_atk:"):
+                        # (In practice, store ident in the button to match exactly)
+                        item.label = "Attacking..."
+                        item.style = ButtonStyle.danger
+                        item.disabled = True
+                        break
+                await interaction.response.edit_message(view=self)
                 await self.pool.execute(
                     """
                     INSERT INTO war_attacks(guild_id, member, last_attack)
