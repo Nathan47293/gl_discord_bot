@@ -425,7 +425,41 @@ class WarView(ui.View):
                     pass
         return callback
 
-    # Remove the first start_countdown implementation and keep only this one
+    async def check_for_respawns(self, now: datetime.datetime):
+        """Separate method to check for expired attacks and send respawn messages"""
+        expired = await self.pool.fetch(
+            """
+            SELECT member FROM war_attacks 
+            WHERE guild_id=$1 
+            AND EXTRACT(EPOCH FROM (NOW() - last_attack)) >= $2
+            """,
+            self.guild_id, self.cd * 3600
+        )
+        
+        if expired:
+            print(f"\nFound {len(expired)} expired attacks in countdown")
+            for record in expired:
+                member = record['member']
+                if member.startswith('colony:'):
+                    for colony in self.colonies:
+                        if colony["ident"] == member:
+                            await self.channel.send(f"✨ Colony at **SB{colony['starbase']} ({colony['x']},{colony['y']})** has respawned!")
+                            colony["last"] = None
+                            break
+                else:
+                    await self.channel.send(f"✨ **{member}** has respawned!")
+                    for m in self.members:
+                        if m["name"] == member:
+                            m["last"] = None
+                            break
+                            
+            await self.pool.execute(
+                "DELETE FROM war_attacks WHERE guild_id=$1 AND member=ANY($2)",
+                self.guild_id, [r['member'] for r in expired]
+            )
+            return True
+        return False
+
     async def start_countdown(self, message):
         import asyncio
         self.channel = message.channel  # Store channel reference
@@ -439,6 +473,8 @@ class WarView(ui.View):
                 war = await get_current_war(self.pool, self.guild_id)
                 if not war:
                     return
+
+                updated = await self.check_for_respawns(now) or False
 
                 for item in self.children:
                     if hasattr(item, 'last_attack'):

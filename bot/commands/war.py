@@ -69,6 +69,12 @@ class WarCog(commands.Cog):
             pool=self.bot.pool
         )
         view.enemy_alliance = target
+        view.parent_cog = self  # Set parent_cog immediately
+        view.channel = self.war_channels.get(guild_id)  # Set channel if available
+        
+        # Add to active views immediately
+        self.active_views[guild_id] = view
+        
         if full_view:
             await view.populate()
             return embed, view
@@ -159,10 +165,10 @@ class WarCog(commands.Cog):
         print(f"Guild ID: {inter.guild_id}")
         print(f"Channel ID: {inter.channel.id}")
         
-        # Store the channel reference for this guild
+        # Store the channel reference for this guild first
         self.war_channels[str(inter.guild_id)] = inter.channel
         
-        # Now get the full interactive war view.
+        # Now get the full interactive war view
         embed, view = await self.get_war_embed_and_view(str(inter.guild_id), own, target)
         
         print(f"Created view with ID: {id(view)}")
@@ -174,9 +180,7 @@ class WarCog(commands.Cog):
         print(f"Active views after: {list(self.active_views.keys())}")
         
         msg = await inter.followup.send(embed=embed, view=view, wait=True)
-        view.message = msg  # Add this line to store message reference
-        view.channel = inter.channel  # Add channel reference to view
-        view.parent_cog = self  # Give view access to this cog
+        view.message = msg
         self.last_war_message = msg
 
     @app_commands.command(
