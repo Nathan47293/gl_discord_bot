@@ -335,6 +335,10 @@ class WarView(ui.View):
                         attack_label = f"{mn}min"
                     disabled = remaining > 0
                     style = ButtonStyle.danger if disabled else ButtonStyle.primary
+                    
+                    # Store the exact expiration time instead of last_attack
+                    if disabled:
+                        attack_btn.expiry = entry["last"] + datetime.timedelta(hours=self.cd)
                 else:
                     attack_label = "Attacked"  # Changed from "Attack"
                     disabled = False
@@ -468,79 +472,56 @@ class WarView(ui.View):
         while not self.is_finished():
             try:
                 now = datetime.datetime.now(datetime.timezone.utc)
-                
-                war = await get_current_war(self.pool, self.guild_id)
-                if not war:
-                    return
-
                 updated = False
-                expired_members = []
-                cache = self.members if self.mode == "main" else self.colonies
 
-                # Check all entries in cache for expiration
-                for entry in cache:
-                    if entry["last"]:
-                        elapsed = (now - entry["last"]).total_seconds()
-                        if elapsed >= self.cd * 3600:
-                            # Handle expiration
-                            if isinstance(entry, dict) and "ident" in entry:  # Colony
-                                colony_id = entry["ident"]
-                                await self.channel.send(f"✨ Colony at **SB{entry['starbase']} ({entry['x']},{entry['y']})** has respawned!")
-                                expired_members.append(colony_id)
-                                entry["last"] = None
-                            else:  # Member
-                                await self.channel.send(f"✨ **{entry['name']}** has respawned!")
-                                expired_members.append(entry["name"])
-                                entry["last"] = None
-                            updated = True
-
-                # Only check buttons for visual updates every 15s
-                should_update_visuals = not hasattr(self, '_last_visual_update') or \
-                    (now - self._last_visual_update).total_seconds() >= 15
-
-                # Update button displays
+                # Check buttons for expiry
                 for item in self.children:
-                    if hasattr(item, 'last_attack'):
-                        elapsed = (now - item.last_attack).total_seconds()
-                        remaining = max(0, self.cd * 3600 - elapsed)
+                    if hasattr(item, 'expiry'):
+                        time_left = (item.expiry - now).total_seconds()
                         
-                        if remaining <= 0:
-                            item.label = "Attacked"
-                            item.style = ButtonStyle.primary
-                            item.disabled = False
-                            del item.last_attack
-                            updated = True
-                        elif should_update_visuals:
-                            # Update visual countdown
-                            if remaining >= 3600:
-                                hr = int(remaining // 3600)
-                                mn = int((remaining % 3600) // 60)
+                        if time_left <= 0:
+                            # Handle expiration
+                            if item.custom_id.startswith("war_atk:"):
+                                member = item.custom_id.replace("war_atk:", "")
+                                await self.channel.send(f"✨ **{member}** has respawned!")
+                                item.label = "Attacked"
+                                item.style = ButtonStyle.primary
+                                item.disabled = False
+                                delattr(item, 'expiry')
+                                for m in self.members:
+                                    if m["name"] == member:
+                                        m["last"] = None
+                                        break
+                                updated = True
+                            elif item.custom_id.startswith("war_col_atk:"):
+                                colony_id = item.custom_id.replace("war_col_atk:", "")
+                                for colony in self.colonies:
+                                    if colony["ident"] == colony_id:
+                                        await self.channel.send(f"✨ Colony at **SB{colony['starbase']} ({colony['x']},{colony['y']})** has respawned!")
+                                        colony["last"] = None
+                                        break
+                                item.label = "Attacked"
+                                item.style = ButtonStyle.primary
+                                item.disabled = False
+                                delattr(item, 'expiry')
+                                updated = True
+                        else:
+                            # Update countdown display
+                            if time_left >= 3600:
+                                hr = int(time_left // 3600)
+                                mn = int((time_left % 3600) // 60)
                                 new_label = f"{self.cd}hr" if mn == 0 else f"{hr}hr {mn}min"
                             else:
-                                mn = int(math.ceil(remaining/60))
+                                mn = int(math.ceil(time_left/60))
                                 new_label = f"{mn}min"
                             
-                            if new_label != item.label:
+                            if item.label != new_label:
                                 item.label = new_label
                                 updated = True
 
-                if expired_members:
-                    # Clean up expired attacks from DB
-                    await self.pool.execute(
-                        "DELETE FROM war_attacks WHERE guild_id=$1 AND member=ANY($2)",
-                        self.guild_id, expired_members
-                    )
-
-                if updated or expired_members:
-                    if should_update_visuals:
-                        self._last_visual_update = now
+                if updated:
                     await message.edit(view=self)
-                    if hasattr(self, 'parent_cog'):
-                        for view in self.parent_cog.active_views.values():
-                            if view != self:
-                                await view.rebuild_view()
 
             except Exception as e:
                 print(f"Error in countdown loop: {e}")
-
             await asyncio.sleep(1)
