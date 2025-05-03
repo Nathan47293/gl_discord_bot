@@ -29,8 +29,15 @@ class WarView(ui.View):
 
     async def populate(self):
         try:
-            # Cache members list for faster pagination.
-            if not hasattr(self, "members"):
+            # Refresh dynamic "last" field for cached members if available,
+            # otherwise fetch and cache the members data.
+            if hasattr(self, "members"):
+                for member in self.members:
+                    member["last"] = await self.pool.fetchval(
+                        "SELECT last_attack FROM war_attacks WHERE guild_id=$1 AND member=$2",
+                        self.guild_id, member["name"]
+                    )
+            else:
                 war = await get_current_war(self.pool, self.guild_id)
                 if war:
                     enemy = war["enemy_alliance"]
@@ -42,7 +49,6 @@ class WarView(ui.View):
                     "SELECT member, main_sb FROM members WHERE alliance=$1 ORDER BY main_sb DESC",
                     enemy
                 )
-                # Store maximum member name length for alignment (including ' SBx').
                 self.max_name_length = max((len(f"{m['member']} SB{m['main_sb']}") for m in members_data), default=0)
                 self.members = []
                 for rec in members_data:
