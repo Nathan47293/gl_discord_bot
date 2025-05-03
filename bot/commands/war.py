@@ -155,8 +155,8 @@ class WarCog(commands.Cog):
         # 9) Send the embed; optionally mount your WarView here
         view = WarView(
             guild_id=str(inter.guild_id),  # Pass the guild ID
-            cooldown_hours=4,             # Use the cooldown duration (e.g., 4 hours)
-            pool=self.bot.pool            # Pass the database connection pool
+            cooldown_hours=T_enemy,         # Use attacking cooldown
+            pool=self.bot.pool              # Pass the database connection pool
         )
         await view.populate()  # Dynamically populate the buttons
         await inter.followup.send(embed=embed, view=view)
