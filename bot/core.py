@@ -31,6 +31,17 @@ intents = discord.Intents.default()
 intents.message_content = True  # Enable message content intent
 intents.members = True          # Enable server members intent
 
+# Define default permissions the bot needs
+default_permissions = discord.Permissions(
+    send_messages=True,
+    view_channel=True,
+    read_message_history=True,
+    embed_links=True,
+    external_emojis=True,
+    add_reactions=True,
+    manage_messages=True  # Needed for editing/deleting messages
+)
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Main Bot Class Definition
 # ─────────────────────────────────────────────────────────────────────────────
@@ -46,7 +57,8 @@ class GalaxyBot(commands.Bot):
         #  - command_prefix: only relevant for legacy text commands (we're using slash commands)
         #  - intents: which events the bot will receive
         #  - help_command=None: disable the default '!help' so we can provide our own or none
-        super().__init__(command_prefix="!", intents=intents, help_command=None)
+        #  - default_permissions: the permissions the bot needs
+        super().__init__(command_prefix="!", intents=intents, help_command=None, default_permissions=default_permissions)
 
         # These attributes will be populated in setup_hook:
         self.pool        = None          # AsyncPG pool for DB queries

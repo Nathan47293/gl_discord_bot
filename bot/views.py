@@ -31,17 +31,26 @@ class WarView(ui.View):
         self.colonies = []      # cache for colony mode
         self.members = []       # cache for main mode
 
+    async def send_safe(self, channel, message):
+        """Helper method to safely send messages with permission checking"""
+        try:
+            # Check if bot has required permissions
+            permissions = channel.permissions_for(channel.guild.me)
+            if not permissions.send_messages:
+                print(f"Missing send_messages permission in channel {channel.id}")
+                return False
+                
+            await channel.send(message)
+            return True
+        except discord.Forbidden:
+            print(f"Missing permissions to send messages in channel {channel.id}")
+            return False
+        except Exception as e:
+            print(f"Error sending message: {e}")
+            return False
+
     async def populate(self):
         try:
-            now = datetime.datetime.now(datetime.timezone.utc)
-            print(f"Checking for expired attacks in guild {self.guild_id}")
-
-            # Store channel reference for messages
-            self.message_channel = getattr(self, 'message', None)
-            if self.message_channel:
-                self.message_channel = self.message_channel.channel
-                print(f"Found message channel: {self.message_channel.id}")
-
             # First check for expired attacks and send notifications before cleaning up
             expired = await self.pool.fetch(
                 """
@@ -53,31 +62,29 @@ class WarView(ui.View):
                 self.guild_id, self.cd * 3600
             )
 
-            if expired:
-                print(f"Found {len(expired)} expired attacks")
-                if self.message_channel:
-                    for record in expired:
-                        member = record['member']
-                        try:
-                            if member.startswith('colony:'):
-                                for colony in self.colonies:
-                                    if colony["ident"] == member:
-                                        await self.message_channel.send(
-                                            f"✨ Colony at **SB{colony['starbase']} ({colony['x']},{colony['y']})** has respawned!"
-                                        )
-                                        break
-                            else:
-                                await self.message_channel.send(f"✨ **{member}** has respawned!")
-                            print(f"Sent respawn message for {member}")
-                        except Exception as e:
-                            print(f"Error sending message for {member}: {e}")
+            # Store channel reference for messages
+            self.message_channel = getattr(self, 'message', None)
+            if self.message_channel:
+                self.message_channel = self.message_channel.channel
 
-            # Now clean up the expired attacks
-            result = await self.pool.execute(
+            if expired and self.message_channel:
+                for record in expired:
+                    member = record['member']
+                    if member.startswith('colony:'):
+                        for colony in self.colonies:
+                            if colony["ident"] == member:
+                                await self.message_channel.send(
+                                    f"✨ Colony at **SB{colony['starbase']} ({colony['x']},{colony['y']})** has respawned!"
+                                )
+                                break
+                    else:
+                        await self.message_channel.send(f"✨ **{member}** has respawned!")
+
+            # Clean up expired attacks
+            await self.pool.execute(
                 "DELETE FROM war_attacks WHERE guild_id=$1 AND EXTRACT(EPOCH FROM (NOW() - last_attack)) >= $2",
                 self.guild_id, self.cd * 3600
             )
-            print(f"Cleaned up {result} expired attacks")
 
             if self.mode == "main":
                 if not self.members:
@@ -160,7 +167,6 @@ class WarView(ui.View):
             if entry["last"]:
                 elapsed = (now - entry["last"]).total_seconds()
                 if elapsed >= self.cd * 3600:
-                    print(f"Clearing expired attack for {entry.get('name', entry.get('ident'))}") # Debug log
                     entry["last"] = None
                     expired_count += 1
         
@@ -382,7 +388,6 @@ class WarView(ui.View):
     # Remove the first start_countdown implementation and keep only this one
     async def start_countdown(self, message):
         import asyncio
-        print(f"Starting countdown task for guild {self.guild_id}")  # Debug log
         await message.channel.send("✨ War tracker initialized - I will notify when targets respawn!")
         
         while not self.is_finished():
@@ -390,10 +395,8 @@ class WarView(ui.View):
                 updated = False
                 now = datetime.datetime.now(datetime.timezone.utc)
                 
-                # Print debug info about current state
                 war = await get_current_war(self.pool, self.guild_id)
                 if not war:
-                    print(f"No active war found for guild {self.guild_id}")
                     return
 
                 for item in self.children:
@@ -403,65 +406,52 @@ class WarView(ui.View):
                         
                         if remaining <= 0:
                             custom_id = item.custom_id
-                            try:
-                                channel = message.channel
-                                print(f"Channel for messages: {channel.id}")  # Debug log
-                                
-                                if custom_id.startswith("war_atk:"):
-                                    member = custom_id.replace("war_atk:", "")
-                                    print(f"Member {member} respawning in guild {self.guild_id}")  # Debug log
-                                    await channel.send(f"✨ **{member}** has respawned!", allowed_mentions=None)
-                                    
-                                    # Delete record and update cache
-                                    await self.pool.execute(
-                                        "DELETE FROM war_attacks WHERE guild_id=$1 AND member=$2",
-                                        self.guild_id, member
-                                    )
-                                    for m in self.members:
-                                        if m["name"] == member:
-                                            m["last"] = None
-                                            break
+                            if custom_id.startswith("war_atk:"):
+                                member = custom_id.replace("war_atk:", "")
+                                await message.channel.send(f"✨ **{member}** has respawned!", allowed_mentions=None)
+                                await self.pool.execute(
+                                    "DELETE FROM war_attacks WHERE guild_id=$1 AND member=$2",
+                                    self.guild_id, member
+                                )
+                                for m in self.members:
+                                    if m["name"] == member:
+                                        m["last"] = None
+                                        break
 
-                                elif custom_id.startswith("war_col_atk:"):
-                                    colony_id = custom_id.replace("war_col_atk:", "")
-                                    for colony in self.colonies:
-                                        if colony["ident"] == colony_id:
-                                            print(f"Colony {colony_id} respawning")  # Debug log
-                                            colony_msg = f"✨ Colony at **SB{colony['starbase']} ({colony['x']},{colony['y']})** has respawned!"
-                                            await channel.send(colony_msg, allowed_mentions=None)
-                                            colony["last"] = None
-                                            break
-                                    
-                                    await self.pool.execute(
-                                        "DELETE FROM war_attacks WHERE guild_id=$1 AND member=$2",
-                                        self.guild_id, colony_id
-                                    )
+                            elif custom_id.startswith("war_col_atk:"):
+                                colony_id = custom_id.replace("war_col_atk:", "")
+                                for colony in self.colonies:
+                                    if colony["ident"] == colony_id:
+                                        await message.channel.send(
+                                            f"✨ Colony at **SB{colony['starbase']} ({colony['x']},{colony['y']})** has respawned!"
+                                        )
+                                        colony["last"] = None
+                                        break
+                                await self.pool.execute(
+                                    "DELETE FROM war_attacks WHERE guild_id=$1 AND member=$2",
+                                    self.guild_id, colony_id
+                                )
 
-                                item.label = "Attacked"
-                                item.style = ButtonStyle.primary
-                                item.disabled = False
-                                del item.last_attack
-                                updated = True
-                                print(f"Successfully processed respawn for {custom_id}")  # Debug log
-
-                            except Exception as e:
-                                print(f"Error processing respawn: {e}")  # Debug log
+                            item.label = "Attacked"
+                            item.style = ButtonStyle.primary
+                            item.disabled = False
+                            del item.last_attack
+                            updated = True
                             continue
 
+                        if remaining >= 3600:
+                            hr = int(remaining // 3600)
+                            mn = int((remaining % 3600) // 60)
+                            new_label = f"{self.cd}hr" if mn == 0 else f"{hr}hr {mn}min"
                         else:
-                            if remaining >= 3600:
-                                hr = int(remaining // 3600)
-                                mn = int((remaining % 3600) // 60)
-                                new_label = f"{self.cd}hr" if mn == 0 else f"{hr}hr {mn}min"
-                            else:
-                                mn = int(math.ceil(remaining/60))
-                                new_label = f"{mn}min"
-                            
-                            if new_label != item.label:
-                                item.label = new_label
-                                item.style = ButtonStyle.danger
-                                item.disabled = True
-                                updated = True
+                            mn = int(math.ceil(remaining/60))
+                            new_label = f"{mn}min"
+                        
+                        if new_label != item.label:
+                            item.label = new_label
+                            item.style = ButtonStyle.danger
+                            item.disabled = True
+                            updated = True
 
                 if updated:
                     await message.edit(view=self)
