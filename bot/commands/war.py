@@ -9,7 +9,8 @@ from ..db import (
     alliance_exists,        
     get_active_alliance,    
     all_alliances,
-    ADMIN_PASS   # <-- new: used for /endwar
+    ADMIN_PASS,             # <-- used for /endwar
+    get_current_war         # <-- added to fix NameError
 )
 # Import the view that handles per-member buttons and timers
 from bot.views import WarView
