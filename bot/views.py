@@ -128,8 +128,8 @@ class WarView(ui.View):
                     if idx >= len(members):
                         continue
                     member = members[idx]
-                    # Pad member name using maximum length with non-breaking spaces.
-                    padded_name = member["name"].ljust(self.max_name_length, "\u00A0")
+                    # Replace non-breaking spaces with braille blank (U+2800) for padding.
+                    padded_name = member["name"].ljust(self.max_name_length, "⠀")
                     name_btn = ui.Button(
                         label=padded_name,
                         style=ButtonStyle.secondary,
