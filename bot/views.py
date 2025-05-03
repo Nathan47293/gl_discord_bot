@@ -128,8 +128,15 @@ class WarView(ui.View):
                     if idx >= len(members):
                         continue
                     member = members[idx]
-                    # Pad member name using the maximum length.
-                    padded_name = member["name"].ljust(self.max_name_length)
+                    # Pad member name using maximum length with non-breaking spaces.
+                    padded_name = member["name"].ljust(self.max_name_length, "\u00A0")
+                    name_btn = ui.Button(
+                        label=padded_name,
+                        style=ButtonStyle.secondary,
+                        custom_id=f"label:{member['name']}",
+                        disabled=True,
+                        row=r+1
+                    )
                     # Compute attack button details based on cooldown
                     if member["last"]:
                         elapsed = (now - member["last"]).total_seconds()
@@ -147,14 +154,6 @@ class WarView(ui.View):
                         attack_label = "Attack"
                         disabled = False
                         style = ButtonStyle.primary
-                    # Create a disabled name button with a monospaced label.
-                    name_btn = ui.Button(
-                        label=f"`{padded_name}`",
-                        style=ButtonStyle.secondary,
-                        custom_id=f"label:{member['name']}",
-                        disabled=True,
-                        row=r+1
-                    )
                     # Create an attack button
                     attack_btn = ui.Button(
                         label=attack_label,
