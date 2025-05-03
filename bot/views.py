@@ -76,13 +76,13 @@ class WarView(ui.View):
                         raise ValueError("No active war found for this guild.")
                     # Query all colonies for enemy alliance sorted by starbase descending.
                     colonies_data = await self.pool.fetch(
-                        "SELECT starbase, x, y FROM colonies WHERE alliance=$1 ORDER BY starbase DESC, x, y",
+                        "SELECT id, starbase, x, y FROM colonies WHERE alliance=$1 ORDER BY starbase DESC, x, y",
                         enemy
                     )
                     self.max_name_length = max((len(f"SB{c['starbase']} ({c['x']},{c['y']})") for c in colonies_data), default=0)
                     self.colonies = []
                     for rec in colonies_data:
-                        ident = f"colony:{rec['starbase']}:{rec['x']}:{rec['y']}"
+                        ident = f"colony:{rec['id']}"
                         last = await self.pool.fetchval(
                             "SELECT last_attack FROM war_attacks WHERE guild_id=$1 AND member=$2",
                             self.guild_id, ident
