@@ -84,6 +84,9 @@ class WarCog(commands.Cog):
             return await inter.response.send_message(
                 "❌ Enemy alliance not found.", ephemeral=True
             )
+        
+        # Defer the response to allow extra processing time.
+        await inter.response.defer()
 
         # 3) Query alliance sizes A (yours) and E (enemy)
         async with self.bot.pool.acquire() as conn:
@@ -149,15 +152,13 @@ class WarCog(commands.Cog):
         )
 
         # 9) Send the embed; optionally mount your WarView here
-        #await inter.response.send_message(embed=embed)
-        # ...existing code...
         view = WarView(
             guild_id=str(inter.guild_id),  # Pass the guild ID
             cooldown_hours=4,             # Use the cooldown duration (e.g., 4 hours)
             pool=self.bot.pool            # Pass the database connection pool
         )
         await view.populate()  # Dynamically populate the buttons
-        await inter.response.send_message(embed=embed, view=view)
+        await inter.followup.send(embed=embed, view=view)
         
 
 # Setup function to register this Cog with the bot
