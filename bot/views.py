@@ -333,24 +333,23 @@ class WarView(ui.View):
                 # Only update buttons with an active cooldown
                 if hasattr(item, 'last_attack'):
                     elapsed = (now - item.last_attack).total_seconds()
-                    remaining = max(0, self.cd * 3600 - elapsed)  # Back to using hours
+                    remaining = max(0, self.cd * 3600 - elapsed)
                     if remaining <= 0:
                         # Find the name/identity of what respawned
                         custom_id = item.custom_id
                         if custom_id.startswith("war_atk:"):
                             member_name = custom_id.replace("war_atk:", "")
                             await message.channel.send(f"✨ **{member_name}** has respawned!")
-                        elif custom_id.startswith("war_col_atk:colony:"):  # Fixed: correct prefix
-                            colony_id = custom_id.replace("war_col_atk:", "")  # Keep the "colony:" prefix
-                            # Find colony info from cache
+                        elif custom_id.startswith("war_col_atk:"):
+                            colony_id = custom_id.replace("war_col_atk:", "")
                             for colony in self.colonies:
-                                if colony["ident"] == colony_id:  # Match the full ident including "colony:"
+                                if colony["ident"] == colony_id:
                                     await message.channel.send(f"✨ Colony at **SB{colony['starbase']} ({colony['x']},{colony['y']})** has respawned!")
                                     break
-                        
-                        new_label = "Attacked"
+                        item.label = "Attacked"  # Set label before deletion of last_attack
                         item.style = ButtonStyle.primary
                         item.disabled = False
+                        new_label = item.label  # Use the same "Attacked" label
                         del item.last_attack
                     else:
                         if remaining >= 3600:
