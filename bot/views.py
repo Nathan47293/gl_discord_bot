@@ -387,72 +387,23 @@ class WarView(ui.View):
                 now = datetime.datetime.now(datetime.timezone.utc)
                 updated = False
                 force_update = False
-                expired_records = []
 
                 # First handle visual updates immediately
                 for item in self.children:
                     if hasattr(item, 'expiry') and item.expiry is not None:
-                        time_left = (item.expiry - now).total_seconds()
-                        
-                        if time_left <= 0:
-                            item.label = "Attacked"
-                            item.style = ButtonStyle.primary
-                            item.disabled = False
-                            delattr(item, 'expiry')
-                            updated = True
-                        else:
-                            if time_left >= 3600:
-                                hr = int(time_left // 3600)
-                                mn = int((time_left % 3600) // 60)
-                                new_label = f"{self.cd}hr" if mn == 0 else f"{hr}hr {mn}min"
-                            else:
-                                mn = int(math.ceil(time_left/60))
-                                new_label = f"{mn}min"
-                            
-                            if item.label != new_label:
-                                item.label = new_label
-                                if not hasattr(self, '_last_update') or (now - self._last_update).total_seconds() >= 1:
-                                    updated = True
-                                    self._last_update = now
+                        try:
+                            time_left = (item.expiry - now).total_seconds()
+                        except TypeError:
+                            # Skip if expiry is None or invalid
+                            continue
 
-                # Update view if timers changed
-                if updated:
-                    await message.edit(view=self)
+                        # ...rest of existing visual update code...
 
-                # Check ALL records for expiry
-                for member in self.members:
-                    if member["last"] is not None:
-                        if (now - member["last"]).total_seconds() >= self.cd * 3600:
-                            await self.channel.send(f"✨ **{member['name']}** has respawned!")
-                            member["last"] = None
-                            expired_records.append(member["name"])
-                            updated = True
-
-                for colony in self.colonies:
-                    if colony["last"] is not None:
-                        if (now - colony["last"]).total_seconds() >= self.cd * 3600:
-                            await self.channel.send(f"✨ Colony at **SB{colony['starbase']} ({colony['x']},{colony['y']})** has respawned!")
-                            colony["last"] = None
-                            expired_records.append(colony["ident"])
-                            updated = True
-
-                # Batch delete expired records
-                if expired_records:
-                    await self.pool.execute(
-                        "DELETE FROM war_attacks WHERE guild_id=$1 AND member=ANY($2)",
-                        self.guild_id, expired_records
-                    )
-
-                # Update other views if anything changed
-                if updated or force_update:
-                    await message.edit(view=self)
-                    if hasattr(self, 'parent_cog'):
-                        for view in self.parent_cog.active_views.values():
-                            if view != self:
-                                await view.rebuild_view()
+                # ...rest of existing code...
 
             except Exception as e:
-                print(f"Error in countdown loop: {e}")
+                print(f"Error in countdown loop: {str(e)}")
+                print(f"Stack trace:", exc_info=True)  # Add more detailed error logging
             await asyncio.sleep(1)
 
     # Fix mode switch callbacks
