@@ -469,6 +469,7 @@ class WarView(ui.View):
             try:
                 now = datetime.datetime.now(datetime.timezone.utc)
                 updated = False
+                force_update = False  # Add flag for immediate updates
 
                 # Check ALL records in both main and colonies for expiry
                 expired_items = []
@@ -520,9 +521,14 @@ class WarView(ui.View):
                             
                             if item.label != new_label:
                                 item.label = new_label
-                                updated = True
+                                # Force immediate update for new timers, otherwise respect 15s cooldown
+                                if not hasattr(self, '_last_update') or (now - self._last_update).total_seconds() >= 15:
+                                    updated = True
+                                    self._last_update = now
+                                elif time_left == self.cd * 3600:  # Just attacked
+                                    force_update = True
 
-                if updated:
+                if updated or force_update:
                     await message.edit(view=self)
                     if hasattr(self, 'parent_cog'):
                         for view in self.parent_cog.active_views.values():
