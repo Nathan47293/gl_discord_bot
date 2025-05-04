@@ -214,7 +214,7 @@ class WarView(ui.View):
             async def prev_page(interaction):
                 await interaction.response.defer()
                 self.current_page -= 1
-                self.rebuild_view()
+                await self.rebuild_view()  # Add await here
                 await interaction.edit_original_response(view=self)
             prev_btn.callback = prev_page
             items.append(prev_btn)
@@ -234,7 +234,7 @@ class WarView(ui.View):
             async def next_page(interaction):
                 await interaction.response.defer()
                 self.current_page += 1
-                self.rebuild_view()
+                await self.rebuild_view()  # Add await here
                 await interaction.edit_original_response(view=self)
             next_btn.callback = next_page
             items.append(next_btn)
