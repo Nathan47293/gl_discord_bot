@@ -77,15 +77,25 @@ class GalaxyBot(commands.Bot):
                 for child in cmd.children:
                     child.guild_only = True
 
+        # Clear ALL commands first to prevent conflicts
+        await self.tree.sync()
+
         if TEST_GUILD:
-            # Test guild mode: Clear global, sync to test guild only
             guild = discord.Object(id=int(TEST_GUILD))
-            self.tree.clear_commands(guild=None)  # Clear global first
+            # First clear any existing commands in both global and test guild
+            await self.tree.sync()  # Clear global commands
+            self.tree.clear_commands(guild=guild)  # Clear test guild commands
+            
+            # Now set up test guild commands
             self.tree.copy_global_to(guild=guild)
-            await self.tree.sync(guild=guild)  # Single sync
+            await self.tree.sync(guild=guild)
+            
+            # Finally, clear global commands again
+            self.tree.clear_commands(guild=None)
+            await self.tree.sync()
             print(f"❇ Commands synced ONLY to test guild {TEST_GUILD}")
         else:
-            # Global mode: Just sync once
+            # Global mode: Just sync once with guild_only flag
             await self.tree.sync()
             print("✅ Global commands synced (guild-only)")
 
