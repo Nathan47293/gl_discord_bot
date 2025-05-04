@@ -426,7 +426,7 @@ class WarView(ui.View):
 
                 # First handle visual updates immediately
                 for item in self.children:
-                    if hasattr(item, 'expiry') and item.expiry is not None:  # Add null check
+                    if hasattr(item, 'expiry') and item.expiry is not None:  # Already added this check
                         time_left = (item.expiry - now).total_seconds()
                         
                         if time_left <= 0:
@@ -488,7 +488,7 @@ class WarView(ui.View):
 
                 # Update visual timers for current page
                 for item in self.children:
-                    if hasattr(item, 'expiry'):
+                    if hasattr(item, 'expiry') and item.expiry is not None:  # Add this check here too
                         time_left = (item.expiry - now).total_seconds()
                         
                         if time_left <= 0:
