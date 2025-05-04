@@ -76,9 +76,14 @@ class GalaxyBot(commands.Bot):
         self.pool = await init_db_pool(DATABASE)
         await register_commands(self)
 
-        # Set guild_only=True for all commands
+        # Create a base decorator that enforces guild-only
+        def guild_only_decorator(inner):
+            inner.guild_only = True
+            return inner
+
+        # Apply guild_only to every command's decorator
         for cmd in self.tree.get_commands():
-            cmd.guild_only = True
+            cmd.decorator = guild_only_decorator(cmd.decorator or (lambda x: x))
 
         if TEST_GUILD:
             # If TEST_GUILD_ID is set, we sync commands only to that guild
@@ -90,6 +95,13 @@ class GalaxyBot(commands.Bot):
             # No test guild: sync globally to all guilds bot is in
             await self.tree.sync()
             print("✅ Global commands synced")
+
+    async def on_interaction(self, interaction: discord.Interaction):
+        """Global check that prevents ALL DM interactions"""
+        if interaction.guild_id is None:
+            await interaction.response.send_message("❌ This bot can only be used in servers!", ephemeral=True)
+            return
+        await super().on_interaction(interaction)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Instantiate and run the bot
