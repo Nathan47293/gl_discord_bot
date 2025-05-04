@@ -73,32 +73,26 @@ class GalaxyBot(commands.Bot):
           2) Dynamically load all command Cogs.
           3) Sync your slash commands to Discord (either test guild or globally).
         """
-        # 1) Initialize the AsyncPG pool and ensure your tables exist
-        #    `init_db_pool` should create your tables if they don't exist already.
         self.pool = await init_db_pool(DATABASE)
-
-        # 2) Load and register all command modules (Cogs) with this bot
         await register_commands(self)
 
-        # 3) Sync slash commands to Discord
         if TEST_GUILD:
-            # If TEST_GUILD_ID is set, we sync commands only to that guild.
-            # This propagates changes instantly for testing.
+            # If TEST_GUILD_ID is set, we sync commands only to that guild
             guild = discord.Object(id=int(TEST_GUILD))
-
-            # Clear any existing commands in this guild (to avoid duplicates)
-            self.tree.clear_commands(guild=guild)
-            # Copy the global commands to this test guild
             self.tree.copy_global_to(guild=guild)
-            # Perform the sync
             await self.tree.sync(guild=guild)
             print(f"❇ Commands synced to test guild {TEST_GUILD}")
         else:
-            # No test guild specified: sync globally.
-            # Global updates can take up to an hour to propagate on Discord’s side.
+            # No test guild: sync globally to all guilds bot is in
             await self.tree.sync()
             print("✅ Global commands synced")
 
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        """Global check that prevents ALL commands from working in DMs"""
+        if interaction.guild_id is None:
+            await interaction.response.send_message("❌ This bot can only be used in servers!", ephemeral=True)
+            return False
+        return True
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Instantiate and run the bot
