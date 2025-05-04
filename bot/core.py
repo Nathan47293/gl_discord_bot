@@ -108,13 +108,11 @@ class GalaxyBot(commands.Bot):
                     ephemeral=True
                 )
             except:
-                # If response fails, silently continue
                 pass
             return
 
-        # Process command if it exists
-        if interaction.command:
-            await interaction.command._invoke_with_namespace(interaction, interaction.namespace)
+        # Let the command handle itself instead of invoking it manually
+        return
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Instantiate and run the bot

@@ -126,13 +126,11 @@ class WarCog(commands.Cog):
         /war
         Displays the current war attack screen.
         """
-        await inter.response.defer()  # Defer first
-
         try:
             # Ensure your alliance is set
             own = await get_active_alliance(self.bot.pool, str(inter.guild_id))
             if not own:
-                await inter.followup.send("❌ Set your alliance first with /setalliance.", ephemeral=True)
+                await inter.response.send_message("❌ Set your alliance first with /setalliance.", ephemeral=True)
                 return
 
             # Rest of the war setup
@@ -140,17 +138,12 @@ class WarCog(commands.Cog):
             if not war_record:
                 target = self.current_wars.get(str(inter.guild_id))
                 if not target:
-                    await inter.followup.send("❌ No active war.", ephemeral=True)
+                    await inter.response.send_message("❌ No active war.", ephemeral=True)
                     return
+
+            # Defer here, after early returns but before heavy lifting
+            await inter.response.defer()
                 
-                await self.bot.pool.execute(
-                    "INSERT INTO wars(guild_id, enemy_alliance) VALUES($1, $2)",
-                    str(inter.guild_id), target
-                )
-                war_record = await get_current_war(self.bot.pool, str(inter.guild_id))
-            
-            target = war_record["enemy_alliance"]
-            
             # Debug info
             print("\n=== War Command Debug ===")
             print(f"Guild ID: {inter.guild_id}")
@@ -180,10 +173,11 @@ class WarCog(commands.Cog):
 
         except Exception as e:
             print(f"Error in war command: {e}")
-            if not inter.response.is_done():
-                await inter.response.send_message("❌ An error occurred.", ephemeral=True)
-            else:
-                await inter.followup.send("❌ An error occurred.", ephemeral=True)
+            try:
+                if not inter.response.is_done():
+                    await inter.response.send_message("❌ An error occurred.", ephemeral=True)
+            except:
+                pass
 
     @app_commands.command(
         name="endwar",
