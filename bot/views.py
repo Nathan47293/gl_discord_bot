@@ -59,58 +59,6 @@ class WarView(ui.View):
             print(f"Has parent_cog: {hasattr(self, 'parent_cog')}")
             print(f"Has channel: {hasattr(self, 'channel')}")
             
-            # First check for expired attacks and send notifications before cleaning up
-            expired = await self.pool.fetch(
-                """
-                SELECT member, EXTRACT(EPOCH FROM (NOW() - last_attack)) as elapsed
-                FROM war_attacks 
-                WHERE guild_id=$1 
-                AND EXTRACT(EPOCH FROM (NOW() - last_attack)) >= $2
-                """,
-                self.guild_id, self.cd * 3600
-            )
-
-            if expired:
-                print(f"\nProcessing {len(expired)} expired attacks:")
-                # Update both the database and our local cache
-                for record in expired:
-                    member = record['member']
-                    print(f"- Processing {member}")
-                    if member.startswith('colony:'):
-                        for colony in self.colonies:
-                            if colony["ident"] == member:
-                                if hasattr(self, 'channel'):
-                                    await self.channel.send(
-                                        f"✨ Colony at **SB{colony['starbase']} ({colony['x']},{colony['y']})** has respawned!"
-                                    )
-                                colony["last"] = None
-                                break
-                    else:
-                        if hasattr(self, 'channel'):
-                            await self.channel.send(f"✨ **{member}** has respawned!")
-                        for m in self.members:
-                            if m["name"] == member:
-                                m["last"] = None
-                                break
-
-                # Delete all expired attacks at once
-                await self.pool.execute(
-                    "DELETE FROM war_attacks WHERE guild_id=$1 AND member=ANY($2)",
-                    self.guild_id, [r['member'] for r in expired]
-                )
-
-                print("\nAttempting to update other views:")
-                if hasattr(self, 'parent_cog'):
-                    print(f"Active views count: {len(self.parent_cog.active_views)}")
-                    for view_id, view in self.parent_cog.active_views.items():
-                        print(f"- Updating view {view_id} (self: {id(self)})")
-                        if view != self:
-                            print("  Calling rebuild_view()")
-                            await view.rebuild_view()  # Fix: await the coroutine
-                            print("  rebuild_view() completed")
-                else:
-                    print("No parent_cog found!")
-
             # Continue with normal population...
             # Store channel reference for messages
             self.message_channel = getattr(self, 'message', None)
@@ -474,10 +422,11 @@ class WarView(ui.View):
                 now = datetime.datetime.now(datetime.timezone.utc)
                 updated = False
                 force_update = False
+                expired_records = []
 
                 # First handle visual updates immediately
                 for item in self.children:
-                    if hasattr(item, 'expiry'):
+                    if hasattr(item, 'expiry') and item.expiry is not None:  # Add null check
                         time_left = (item.expiry - now).total_seconds()
                         
                         if time_left <= 0:
@@ -514,19 +463,21 @@ class WarView(ui.View):
 
                 # Check main planets
                 for member in self.members:
-                    if member["last"] and (now - member["last"]).total_seconds() >= self.cd * 3600:
-                        await self.channel.send(f"✨ **{member['name']}** has respawned!")
-                        member["last"] = None
-                        expired_records.append(member["name"])
-                        updated = True
+                    if member["last"] is not None:  # Add null check
+                        if (now - member["last"]).total_seconds() >= self.cd * 3600:
+                            await self.channel.send(f"✨ **{member['name']}** has respawned!")
+                            member["last"] = None
+                            expired_records.append(member["name"])
+                            updated = True
 
                 # Check colonies
                 for colony in self.colonies:
-                    if colony["last"] and (now - colony["last"]).total_seconds() >= self.cd * 3600:
-                        await self.channel.send(f"✨ Colony at **SB{colony['starbase']} ({colony['x']},{colony['y']})** has respawned!")
-                        colony["last"] = None
-                        expired_records.append(colony["ident"])
-                        updated = True
+                    if colony["last"] is not None:  # Add null check
+                        if (now - colony["last"]).total_seconds() >= self.cd * 3600:
+                            await self.channel.send(f"✨ Colony at **SB{colony['starbase']} ({colony['x']},{colony['y']})** has respawned!")
+                            colony["last"] = None
+                            expired_records.append(colony["ident"])
+                            updated = True
 
                 # Batch delete expired records
                 if expired_records:
