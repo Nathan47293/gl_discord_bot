@@ -76,22 +76,29 @@ class GalaxyBot(commands.Bot):
         self.pool = await init_db_pool(DATABASE)
         await register_commands(self)
 
-        # Make all commands guild-only
+        # First, clear all existing commands everywhere
+        await self.tree.sync()
+        
+        # Set all commands as guild-only before any syncing
         for cmd in self.tree.get_commands():
             cmd.guild_only = True
-            # Also apply to any subcommands if they exist
             if hasattr(cmd, 'children'):
                 for child in cmd.children:
                     child.guild_only = True
 
         if TEST_GUILD:
+            # Sync only to test guild
             guild = discord.Object(id=int(TEST_GUILD))
             self.tree.copy_global_to(guild=guild)
             await self.tree.sync(guild=guild)
-            print(f"❇ Commands synced to test guild {TEST_GUILD}")
-        else:
+            # Remove global commands
+            self.tree.clear_commands(guild=None)
             await self.tree.sync()
-            print("✅ Global commands synced")
+            print(f"❇ Commands synced ONLY to test guild {TEST_GUILD}")
+        else:
+            # Sync globally
+            await self.tree.sync()
+            print("✅ Global commands synced (guild-only)")
 
     async def on_interaction(self, interaction: discord.Interaction):
         """Global check that prevents ALL DM interactions"""
