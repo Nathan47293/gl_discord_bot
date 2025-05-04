@@ -66,20 +66,11 @@ class GalaxyBot(commands.Bot):
         self.ADMIN_PASS  = ADMIN_PASS    # Global admin password for protected commands
 
     async def setup_hook(self):
-        """
-        Discord.py calls this coroutine *before* logging in.
-        Use it to do one-time setup:
-          1) Initialize the database (connection pool + schema).
-          2) Dynamically load all command Cogs.
-          3) Sync your slash commands to Discord (either test guild or globally).
-        """
+        """Discord.py calls this coroutine before login."""
         self.pool = await init_db_pool(DATABASE)
         await register_commands(self)
 
-        # First, clear all existing commands everywhere
-        await self.tree.sync()
-        
-        # Set all commands as guild-only before any syncing
+        # Set guild_only flag on all commands
         for cmd in self.tree.get_commands():
             cmd.guild_only = True
             if hasattr(cmd, 'children'):
@@ -87,43 +78,33 @@ class GalaxyBot(commands.Bot):
                     child.guild_only = True
 
         if TEST_GUILD:
-            # Sync only to test guild
+            # Test guild mode: Clear global, sync to test guild only
             guild = discord.Object(id=int(TEST_GUILD))
+            self.tree.clear_commands(guild=None)  # Clear global first
             self.tree.copy_global_to(guild=guild)
-            await self.tree.sync(guild=guild)
-            # Remove global commands
-            self.tree.clear_commands(guild=None)
-            await self.tree.sync()
+            await self.tree.sync(guild=guild)  # Single sync
             print(f"❇ Commands synced ONLY to test guild {TEST_GUILD}")
         else:
-            # Sync globally
+            # Global mode: Just sync once
             await self.tree.sync()
             print("✅ Global commands synced (guild-only)")
 
     async def on_interaction(self, interaction: discord.Interaction):
-        """Global check that prevents ALL DM interactions"""
+        """Global check that prevents DM interactions"""
         if interaction.guild_id is None:
             try:
-                # Use ephemeral=True and set type=4 for DM responses
                 await interaction.response.send_message(
                     "❌ This bot can only be used in servers!", 
-                    ephemeral=True,
-                    type=4
+                    ephemeral=True
                 )
-            except (discord.errors.InteractionResponded, discord.errors.HTTPException):
-                # If already responded or any HTTP error, try followup
-                try:
-                    await interaction.followup.send(
-                        "❌ This bot can only be used in servers!",
-                        ephemeral=True
-                    )
-                except:
-                    pass  # If all else fails, silently ignore
-            finally:
-                return
-        
-        # Handle guild interactions normally
-        await super().on_interaction(interaction)
+            except:
+                # If response fails, silently continue
+                pass
+            return
+
+        # Process command if it exists
+        if interaction.command:
+            await interaction.command._invoke_with_namespace(interaction, interaction.namespace)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Instantiate and run the bot
