@@ -128,58 +128,63 @@ class WarCog(commands.Cog):
         """
         /war
         Displays the current war attack screen.
-        Requires that:
-         - Your active alliance is set.
-         - A war record exists for this guild.
         """
-        await inter.response.defer()
-        # Ensure your alliance is set.
-        own = await get_active_alliance(self.bot.pool, str(inter.guild_id))
-        if not own:
-            return await inter.followup.send("❌ Set your alliance first with /setalliance.", ephemeral=True)
-        # Retrieve the current war record.
-        war_record = await get_current_war(self.bot.pool, str(inter.guild_id))
-        if not war_record:
-            # Fallback: look up stored enemy alliance from /attack.
-            target = self.current_wars.get(str(inter.guild_id))
-            if not target:
-                return await inter.followup.send("❌ No active war.", ephemeral=True)
-            # Create a new war record so that button callbacks pass the FK check.
-            await self.bot.pool.execute(
-                "INSERT INTO wars(guild_id, enemy_alliance) VALUES($1, $2)",
-                str(inter.guild_id), target
-            )
-            # Re-fetch the war record.
-            war_record = await get_current_war(self.bot.pool, str(inter.guild_id))
-            target = war_record["enemy_alliance"]
-        else:
-            target = war_record["enemy_alliance"]
-        # Trim previous /war screen: update it to be like the attack page (i.e. no interactive view)
-        trimmed_embed, _ = await self.get_war_embed_and_view(str(inter.guild_id), own, target, full_view=False)
-        if self.last_war_message is not None:
-            try:
-                await self.last_war_message.edit(embed=trimmed_embed, view=None)
-            except Exception as e:
-                print(f"Error trimming previous war message: {e}")
+        try:
+            # Ensure your alliance is set
+            own = await get_active_alliance(self.bot.pool, str(inter.guild_id))
+            if not own:
+                await inter.response.send_message("❌ Set your alliance first with /setalliance.", ephemeral=True)
+                return
 
-        print("\n=== War Command Debug ===")
-        print(f"Guild ID: {inter.guild_id}")
-        print(f"Channel ID: {inter.channel.id}")
-        
-        # Store the channel reference for this guild first
-        self.war_channels[str(inter.guild_id)] = inter.channel
-        
-        # Now get the full interactive war view
-        embed, view = await self.get_war_embed_and_view(str(inter.guild_id), own, target)
-        
-        msg = await inter.followup.send(embed=embed, view=view, wait=True)
-        view.message = msg
-        self.last_war_message = msg
-        
-        # Start the countdown task and store it on the view
-        if view._countdown_task is None:  # Only start if not already running
-            view._countdown_task = self.bot.loop.create_task(view.start_countdown(msg))
-            print(f"Started countdown task for view {id(view)}")
+            # Retrieve the current war record
+            war_record = await get_current_war(self.bot.pool, str(inter.guild_id))
+            if not war_record:
+                target = self.current_wars.get(str(inter.guild_id))
+                if not target:
+                    await inter.response.send_message("❌ No active war.", ephemeral=True)
+                    return
+                
+                # Create new war record
+                await self.bot.pool.execute(
+                    "INSERT INTO wars(guild_id, enemy_alliance) VALUES($1, $2)",
+                    str(inter.guild_id), target
+                )
+                war_record = await get_current_war(self.bot.pool, str(inter.guild_id))
+            
+            target = war_record["enemy_alliance"]
+            
+            # Trim previous war screen if it exists
+            trimmed_embed, _ = await self.get_war_embed_and_view(str(inter.guild_id), own, target, full_view=False)
+            if self.last_war_message:
+                try:
+                    await self.last_war_message.edit(embed=trimmed_embed, view=None)
+                except Exception as e:
+                    print(f"Error trimming previous war message: {e}")
+
+            print("\n=== War Command Debug ===")
+            print(f"Guild ID: {inter.guild_id}")
+            print(f"Channel ID: {inter.channel.id}")
+            
+            # Store channel reference
+            self.war_channels[str(inter.guild_id)] = inter.channel
+            
+            # Get full war view
+            embed, view = await self.get_war_embed_and_view(str(inter.guild_id), own, target)
+            
+            # Send response without deferring
+            msg = await inter.response.send_message(embed=embed, view=view)
+            view.message = msg
+            self.last_war_message = msg
+            
+            # Start countdown if needed
+            if view._countdown_task is None:
+                view._countdown_task = self.bot.loop.create_task(view.start_countdown(msg))
+                print(f"Started countdown task for view {id(view)}")
+
+        except Exception as e:
+            print(f"Error in war command: {e}")
+            if not inter.response.is_done():
+                await inter.response.send_message("❌ An error occurred.", ephemeral=True)
 
     @app_commands.command(
         name="endwar",
