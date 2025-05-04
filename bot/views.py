@@ -14,18 +14,21 @@ class WarView(ui.View):
     if the member has been recently attacked.
     """
     # Updated __init__ to remove attacker parameter and add a task handle
-    def __init__(self, guild_id: str, cooldown_hours: int, pool):
+    def __init__(self, guild_id: str, cooldown_hours: int, pool, bot=None):
         """
         :param guild_id: Discord guild (server) ID as string
         :param cooldown_hours: The number of hours of cooldown after an attack
         :param pool: asyncpg Pool instance for DB operations
+        :param bot: Reference to the bot instance for task creation
         """
         # Initialize a persistent View (timeout=None means it never times out)
         super().__init__(timeout=None)
         self.guild_id = guild_id      # Store guild context
         self.cd = cooldown_hours      # Store cooldown duration
         self.pool = pool              # DB pool for fetching records
+        self.bot = bot                # Store bot reference for task creation
         self._countdown_task = None
+        self._last_update = None  # Track last visual update
         self.current_page = 0
         self.mode = "main"      # "main" for members, "colony" for colonies
         self.colonies = []      # cache for colony mode
@@ -185,7 +188,13 @@ class WarView(ui.View):
         except Exception as e:
             print(f"Error populating WarView: {e}")
 
-    def rebuild_view(self):
+    async def rebuild_view(self):
+        if self._countdown_task and self._countdown_task.done() and self.bot:
+            # Restart countdown if it stopped and we have bot reference
+            self._countdown_task = self.bot.loop.create_task(
+                self.start_countdown(self.message)
+            )
+            
         now = datetime.datetime.now(datetime.timezone.utc)
         cache = self.members if self.mode=="main" else self.colonies
 

@@ -66,7 +66,8 @@ class WarCog(commands.Cog):
         view = WarView(
             guild_id=guild_id,
             cooldown_hours=T_enemy,
-            pool=self.bot.pool
+            pool=self.bot.pool,
+            bot=self.bot  # Pass bot reference to view
         )
         view.enemy_alliance = target
         view.parent_cog = self  # Set parent_cog immediately
@@ -182,6 +183,9 @@ class WarCog(commands.Cog):
         msg = await inter.followup.send(embed=embed, view=view, wait=True)
         view.message = msg
         self.last_war_message = msg
+        
+        # Start the countdown task
+        view._countdown_task = self.bot.loop.create_task(view.start_countdown(msg))
 
     @app_commands.command(
         name="endwar",
