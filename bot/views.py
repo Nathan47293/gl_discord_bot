@@ -359,6 +359,15 @@ class WarView(ui.View):
                 now = datetime.datetime.now(datetime.timezone.utc)
                 await interaction.response.defer()
                 
+                # First, update the visuals immediately
+                for member_entry in self.members:
+                    if member_entry["name"] == member:
+                        member_entry["last"] = now
+                        break
+                await self.rebuild_view()
+                await interaction.edit_original_response(view=self)
+                
+                # Then do the DB update in background
                 await self.pool.execute(
                     """
                     INSERT INTO war_attacks(guild_id, member, last_attack)
@@ -368,20 +377,13 @@ class WarView(ui.View):
                     """,
                     self.guild_id, member
                 )
-                
-                # Update cache and rebuild view to show cooldown
-                for member_entry in self.members:
-                    if member_entry["name"] == member:
-                        member_entry["last"] = now
-                        break
 
-                # Get parent view and update it if it exists
-                parent_view = self.parent_cog.active_views.get(self.guild_id)
-                if parent_view and parent_view != self:
-                    await parent_view.populate()  # Update the main view
+                # Update other views
+                if hasattr(self, 'parent_cog'):
+                    for view in self.parent_cog.active_views.values():
+                        if view != self:
+                            await view.rebuild_view()
 
-                self.rebuild_view()
-                await interaction.edit_original_response(view=self)
             except Exception as e:
                 try:
                     await interaction.followup.send(f"Error: {e}", ephemeral=True)
@@ -395,6 +397,15 @@ class WarView(ui.View):
                 now = datetime.datetime.now(datetime.timezone.utc)
                 await interaction.response.defer()
                 
+                # First, update the visuals immediately
+                for colony in self.colonies:
+                    if colony["ident"] == ident:
+                        colony["last"] = now
+                        break
+                await self.rebuild_view()
+                await interaction.edit_original_response(view=self)
+                
+                # Then do the DB update in background
                 await self.pool.execute(
                     """
                     INSERT INTO war_attacks(guild_id, member, last_attack)
@@ -404,20 +415,13 @@ class WarView(ui.View):
                     """,
                     self.guild_id, ident
                 )
-                
-                # Update cache and rebuild view to show cooldown
-                for colony in self.colonies:
-                    if colony["ident"] == ident:
-                        colony["last"] = now
-                        break
 
-                # Get parent view and update it if it exists
-                parent_view = self.parent_cog.active_views.get(self.guild_id)
-                if parent_view and parent_view != self:
-                    await parent_view.populate()  # Update the main view
+                # Update other views
+                if hasattr(self, 'parent_cog'):
+                    for view in self.parent_cog.active_views.values():
+                        if view != self:
+                            await view.rebuild_view()
 
-                self.rebuild_view()
-                await interaction.edit_original_response(view=self)
             except Exception as e:
                 try:
                     await interaction.followup.send(f"Error: {e}", ephemeral=True)
@@ -469,8 +473,41 @@ class WarView(ui.View):
             try:
                 now = datetime.datetime.now(datetime.timezone.utc)
                 updated = False
-                force_update = False  # Add flag for immediate updates
+                force_update = False
 
+                # First handle visual updates immediately
+                for item in self.children:
+                    if hasattr(item, 'expiry'):
+                        time_left = (item.expiry - now).total_seconds()
+                        
+                        if time_left <= 0:
+                            item.label = "Attacked"
+                            item.style = ButtonStyle.primary
+                            item.disabled = False
+                            delattr(item, 'expiry')
+                            updated = True
+                        else:
+                            if time_left >= 3600:
+                                hr = int(time_left // 3600)
+                                mn = int((time_left % 3600) // 60)
+                                new_label = f"{self.cd}hr" if mn == 0 else f"{hr}hr {mn}min"
+                            else:
+                                mn = int(math.ceil(time_left/60))
+                                new_label = f"{mn}min"
+                            
+                            if item.label != new_label:
+                                item.label = new_label
+                                if not hasattr(self, '_last_update') or (now - self._last_update).total_seconds() >= 1:
+                                    updated = True
+                                    self._last_update = now
+
+                # Update view immediately if needed
+                if updated:
+                    await message.edit(view=self)
+
+                # Then handle DB checks and cleanup
+                expired_records = []
+                
                 # Check ALL records in both main and colonies for expiry
                 expired_items = []
                 expired_records = []
