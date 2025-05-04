@@ -295,13 +295,15 @@ class WarView(ui.View):
             btn.row = 0
             self.add_item(btn)
 
-        # Build member grid (same as before using cached self.members):
+        # Build member grid:
         for r in range(members_per_column):
             for c in range(columns):
                 idx = self.current_page * page_size + (c * members_per_column + r)
                 if idx >= len(cache):
                     continue
                 entry = cache[idx]
+                
+                # Create name button
                 if self.mode == "main":
                     label = f"{entry['name']} SB{entry['main_sb']}"
                     custom_id_prefix = "war_atk:"
@@ -310,7 +312,7 @@ class WarView(ui.View):
                     label = f"SB{entry['starbase']} ({entry['x']},{entry['y']})"
                     custom_id_prefix = "war_col_atk:"
                     callback_func = self.create_colony_callback(entry["ident"])
-                # Name button remains unchanged
+
                 name_btn = ui.Button(
                     label=label,
                     style=ButtonStyle.secondary,
@@ -318,14 +320,19 @@ class WarView(ui.View):
                     disabled=True,
                     row=r+1
                 )
-                # For attack button, use member name if in main mode
-                if self.mode == "main":
-                    attack_custom_id = f"{custom_id_prefix}{entry['name']}"
-                else:
-                    attack_custom_id = f"{custom_id_prefix}{entry['ident']}"
+                
+                # Create attack button with all properties set
+                attack_custom_id = f"{custom_id_prefix}{entry['name'] if self.mode == 'main' else entry['ident']}"
+                
+                attack_btn = ui.Button(
+                    custom_id=attack_custom_id,
+                    row=r+1
+                )
+                
                 if entry["last"]:
                     elapsed = (now - entry["last"]).total_seconds()
                     remaining = max(0, self.cd * 3600 - elapsed)
+                    
                     if remaining >= 3600:
                         hr = int(remaining // 3600)
                         mn = int((remaining % 3600) // 60)
@@ -333,26 +340,36 @@ class WarView(ui.View):
                     else:
                         mn = int(math.ceil(remaining/60))
                         attack_label = f"{mn}min"
+                    
                     disabled = remaining > 0
                     style = ButtonStyle.danger if disabled else ButtonStyle.primary
                     
-                    # Store the exact expiration time instead of last_attack
+                    # Store expiry time and ID for countdown
                     if disabled:
                         attack_btn.expiry = entry["last"] + datetime.timedelta(hours=self.cd)
+                        # Store the member/colony info for countdown messages
+                        if self.mode == "main":
+                            attack_btn.member_name = entry["name"]
+                        else:
+                            attack_btn.colony_info = {
+                                "starbase": entry["starbase"],
+                                "x": entry["x"],
+                                "y": entry["y"]
+                            }
                 else:
-                    attack_label = "Attacked"  # Changed from "Attack"
+                    attack_label = "Attacked"
                     disabled = False
                     style = ButtonStyle.primary
-                attack_btn = ui.Button(
-                    label=attack_label,
-                    style=style,
-                    custom_id=attack_custom_id,
-                    disabled=disabled,
-                    row=r+1
-                )
+
+                # Update button properties after creation
+                attack_btn.label = attack_label
+                attack_btn.style = style
+                attack_btn.disabled = disabled
+                attack_btn.callback = callback_func
+                
                 if entry["last"]:
                     attack_btn.last_attack = entry["last"]
-                attack_btn.callback = callback_func
+
                 self.add_item(name_btn)
                 self.add_item(attack_btn)
 
@@ -480,31 +497,26 @@ class WarView(ui.View):
                         time_left = (item.expiry - now).total_seconds()
                         
                         if time_left <= 0:
-                            # Handle expiration
-                            if item.custom_id.startswith("war_atk:"):
-                                member = item.custom_id.replace("war_atk:", "")
-                                await self.channel.send(f"✨ **{member}** has respawned!")
-                                item.label = "Attacked"
-                                item.style = ButtonStyle.primary
-                                item.disabled = False
-                                delattr(item, 'expiry')
+                            # Handle expiration based on stored info
+                            if hasattr(item, 'member_name'):
+                                await self.channel.send(f"✨ **{item.member_name}** has respawned!")
                                 for m in self.members:
-                                    if m["name"] == member:
+                                    if m["name"] == item.member_name:
                                         m["last"] = None
                                         break
-                                updated = True
-                            elif item.custom_id.startswith("war_col_atk:"):
-                                colony_id = item.custom_id.replace("war_col_atk:", "")
+                            elif hasattr(item, 'colony_info'):
+                                info = item.colony_info
+                                await self.channel.send(f"✨ Colony at **SB{info['starbase']} ({info['x']},{info['y']})** has respawned!")
                                 for colony in self.colonies:
-                                    if colony["ident"] == colony_id:
-                                        await self.channel.send(f"✨ Colony at **SB{colony['starbase']} ({colony['x']},{colony['y']})** has respawned!")
+                                    if colony["starbase"] == info["starbase"] and colony["x"] == info["x"] and colony["y"] == info["y"]:
                                         colony["last"] = None
                                         break
-                                item.label = "Attacked"
-                                item.style = ButtonStyle.primary
-                                item.disabled = False
-                                delattr(item, 'expiry')
-                                updated = True
+                            
+                            item.label = "Attacked"
+                            item.style = ButtonStyle.primary
+                            item.disabled = False
+                            delattr(item, 'expiry')
+                            updated = True
                         else:
                             # Update countdown display
                             if time_left >= 3600:
