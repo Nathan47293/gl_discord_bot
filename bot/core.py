@@ -97,16 +97,26 @@ class GalaxyBot(commands.Bot):
         """Global check that prevents ALL DM interactions"""
         if interaction.guild_id is None:
             try:
-                await interaction.response.send_message("❌ This bot can only be used in servers!", ephemeral=True)
-            except discord.errors.InteractionResponded:
-                # If somehow the interaction was already responded to, ignore
-                pass
-            return
-        try:
-            await super().on_interaction(interaction)
-        except discord.errors.InteractionResponded:
-            # Ignore if already responded
-            pass
+                # Use ephemeral=True and set type=4 for DM responses
+                await interaction.response.send_message(
+                    "❌ This bot can only be used in servers!", 
+                    ephemeral=True,
+                    type=4
+                )
+            except (discord.errors.InteractionResponded, discord.errors.HTTPException):
+                # If already responded or any HTTP error, try followup
+                try:
+                    await interaction.followup.send(
+                        "❌ This bot can only be used in servers!",
+                        ephemeral=True
+                    )
+                except:
+                    pass  # If all else fails, silently ignore
+            finally:
+                return
+        
+        # Handle guild interactions normally
+        await super().on_interaction(interaction)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Instantiate and run the bot
