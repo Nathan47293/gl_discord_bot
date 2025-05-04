@@ -394,16 +394,60 @@ class WarView(ui.View):
                         try:
                             time_left = (item.expiry - now).total_seconds()
                         except TypeError:
-                            # Skip if expiry is None or invalid
                             continue
 
-                        # ...rest of existing visual update code...
+                        if time_left <= 0:
+                            item.label = "Attacked"
+                            item.style = ButtonStyle.primary
+                            item.disabled = False
+                            delattr(item, 'expiry')
+                            updated = True
+                        else:
+                            if time_left >= 3600:
+                                hr = int(time_left // 3600)
+                                mn = int((time_left % 3600) // 60)
+                                new_label = f"{self.cd}hr" if mn == 0 else f"{hr}hr {mn}min"
+                            else:
+                                mn = int(math.ceil(time_left/60))
+                                new_label = f"{mn}min"
+                            
+                            if item.label != new_label:
+                                item.label = new_label
+                                if not hasattr(self, '_last_update') or (now - self._last_update).total_seconds() >= 1:
+                                    updated = True
+                                    self._last_update = now
 
-                # ...rest of existing code...
+                # Check for respawns
+                for member in self.members:
+                    if member["last"] and (now - member["last"]).total_seconds() >= self.cd * 3600:
+                        await self.channel.send(f"✨ **{member['name']}** has respawned!")
+                        member["last"] = None
+                        expired_records = [member["name"]]
+                        updated = True
+
+                for colony in self.colonies:
+                    if colony["last"] and (now - colony["last"]).total_seconds() >= self.cd * 3600:
+                        await self.channel.send(f"✨ Colony at **SB{colony['starbase']} ({colony['x']},{colony['y']})** has respawned!")
+                        colony["last"] = None
+                        expired_records = [colony["ident"]]
+                        updated = True
+
+                if expired_records:
+                    await self.pool.execute(
+                        "DELETE FROM war_attacks WHERE guild_id=$1 AND member=ANY($2)",
+                        self.guild_id, expired_records
+                    )
+
+                # Update view if needed
+                if updated or force_update:
+                    await message.edit(view=self)
+                    if hasattr(self, 'parent_cog'):
+                        for view in self.parent_cog.active_views.values():
+                            if view != self:
+                                await view.rebuild_view()
 
             except Exception as e:
-                print(f"Error in countdown loop: {str(e)}")
-                print(f"Stack trace:", exc_info=True)  # Add more detailed error logging
+                print(f"Error in countdown loop: {e}")
             await asyncio.sleep(1)
 
     # Fix mode switch callbacks
