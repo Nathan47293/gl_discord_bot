@@ -271,8 +271,8 @@ class WarView(ui.View):
                     disabled = remaining > 0
                     style = ButtonStyle.danger if disabled else ButtonStyle.primary
                     
-                    # Store expiry time and ID for countdown
-                    if disabled:
+                    # Only set expiry if remaining time is positive
+                    if disabled and remaining > 0:  # Add check here
                         attack_btn.expiry = entry["last"] + datetime.timedelta(hours=self.cd)
                         # Store the member/colony info for countdown messages
                         if self.mode == "main":
