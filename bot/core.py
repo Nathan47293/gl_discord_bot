@@ -70,32 +70,25 @@ class GalaxyBot(commands.Bot):
         self.pool = await init_db_pool(DATABASE)
         await register_commands(self)
 
-        # Set guild_only flag on all commands
+        # Set all commands as guild-only
         for cmd in self.tree.get_commands():
             cmd.guild_only = True
             if hasattr(cmd, 'children'):
                 for child in cmd.children:
                     child.guild_only = True
 
-        # Clear ALL commands first to prevent conflicts
-        await self.tree.sync()
-
         if TEST_GUILD:
+            # Test guild mode: Clear global, sync to test guild only
             guild = discord.Object(id=int(TEST_GUILD))
-            # First clear any existing commands in both global and test guild
-            await self.tree.sync()  # Clear global commands
-            self.tree.clear_commands(guild=guild)  # Clear test guild commands
-            
-            # Now set up test guild commands
+            # Clear all commands first
+            self.tree.clear_commands(guild=None)
+            self.tree.clear_commands(guild=guild)
+            # Sync to test guild only
             self.tree.copy_global_to(guild=guild)
             await self.tree.sync(guild=guild)
-            
-            # Finally, clear global commands again
-            self.tree.clear_commands(guild=None)
-            await self.tree.sync()
             print(f"❇ Commands synced ONLY to test guild {TEST_GUILD}")
         else:
-            # Global mode: Just sync once with guild_only flag
+            # Global mode: Just sync globally
             await self.tree.sync()
             print("✅ Global commands synced (guild-only)")
 
@@ -107,11 +100,12 @@ class GalaxyBot(commands.Bot):
                     "❌ This bot can only be used in servers!", 
                     ephemeral=True
                 )
-            except:
+            except discord.errors.InteractionResponded:
                 pass
-            return
-
-        # Let the command handle itself instead of invoking it manually
+            except Exception as e:
+                print(f"DM interaction error: {e}")
+            finally:
+                return
         return
 
 # ─────────────────────────────────────────────────────────────────────────────

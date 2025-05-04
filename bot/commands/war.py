@@ -133,17 +133,25 @@ class WarCog(commands.Cog):
                 await inter.response.send_message("❌ Set your alliance first with /setalliance.", ephemeral=True)
                 return
 
-            # Rest of the war setup
+            # Get target first
             war_record = await get_current_war(self.bot.pool, str(inter.guild_id))
             if not war_record:
                 target = self.current_wars.get(str(inter.guild_id))
                 if not target:
                     await inter.response.send_message("❌ No active war.", ephemeral=True)
                     return
-
-            # Defer here, after early returns but before heavy lifting
-            await inter.response.defer()
                 
+                # Create new war record
+                await self.bot.pool.execute(
+                    "INSERT INTO wars(guild_id, enemy_alliance) VALUES($1, $2)",
+                    str(inter.guild_id), target
+                )
+            else:
+                target = war_record["enemy_alliance"]
+
+            # Defer after checking war exists but before heavy lifting
+            await inter.response.defer()
+
             # Debug info
             print("\n=== War Command Debug ===")
             print(f"Guild ID: {inter.guild_id}")
