@@ -76,23 +76,20 @@ class GalaxyBot(commands.Bot):
         self.pool = await init_db_pool(DATABASE)
         await register_commands(self)
 
-        # Create a base decorator that enforces guild-only
-        def guild_only_decorator(inner):
-            inner.guild_only = True
-            return inner
-
-        # Apply guild_only to every command's decorator
+        # Make all commands guild-only
         for cmd in self.tree.get_commands():
-            cmd.decorator = guild_only_decorator(cmd.decorator or (lambda x: x))
+            cmd.guild_only = True
+            # Also apply to any subcommands if they exist
+            if hasattr(cmd, 'children'):
+                for child in cmd.children:
+                    child.guild_only = True
 
         if TEST_GUILD:
-            # If TEST_GUILD_ID is set, we sync commands only to that guild
             guild = discord.Object(id=int(TEST_GUILD))
             self.tree.copy_global_to(guild=guild)
             await self.tree.sync(guild=guild)
             print(f"❇ Commands synced to test guild {TEST_GUILD}")
         else:
-            # No test guild: sync globally to all guilds bot is in
             await self.tree.sync()
             print("✅ Global commands synced")
 
