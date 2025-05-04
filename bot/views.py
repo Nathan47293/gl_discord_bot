@@ -106,7 +106,7 @@ class WarView(ui.View):
                         print(f"- Updating view {view_id} (self: {id(self)})")
                         if view != self:
                             print("  Calling rebuild_view()")
-                            await view.rebuild_view()
+                            await view.rebuild_view()  # Fix: await the coroutine
                             print("  rebuild_view() completed")
                 else:
                     print("No parent_cog found!")
@@ -184,7 +184,7 @@ class WarView(ui.View):
                             "SELECT last_attack FROM war_attacks WHERE guild_id=$1 AND member=$2",
                             self.guild_id, colony["ident"]
                         )
-            self.rebuild_view()
+            await self.rebuild_view()  # Fix: await here too
         except Exception as e:
             print(f"Error populating WarView: {e}")
 

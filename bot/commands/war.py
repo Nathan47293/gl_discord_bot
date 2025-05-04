@@ -172,20 +172,14 @@ class WarCog(commands.Cog):
         # Now get the full interactive war view
         embed, view = await self.get_war_embed_and_view(str(inter.guild_id), own, target)
         
-        print(f"Created view with ID: {id(view)}")
-        print(f"Active views before: {list(self.active_views.keys())}")
-        
-        # Store view reference so we can update it from other instances
-        self.active_views[str(inter.guild_id)] = view
-        
-        print(f"Active views after: {list(self.active_views.keys())}")
-        
         msg = await inter.followup.send(embed=embed, view=view, wait=True)
         view.message = msg
         self.last_war_message = msg
         
-        # Start the countdown task
-        view._countdown_task = self.bot.loop.create_task(view.start_countdown(msg))
+        # Start the countdown task and store it on the view
+        if view._countdown_task is None:  # Only start if not already running
+            view._countdown_task = self.bot.loop.create_task(view.start_countdown(msg))
+            print(f"Started countdown task for view {id(view)}")
 
     @app_commands.command(
         name="endwar",
