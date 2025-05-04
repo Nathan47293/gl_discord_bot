@@ -283,7 +283,7 @@ class WarView(ui.View):
                     await interaction.edit_original_response(view=self)
                     await self.populate()
                 else:
-                    self.rebuild_view()
+                    await self.rebuild_view()  # Add await here
                 await interaction.edit_original_response(view=self)
             mode_btn.callback = switch_to_colony
         else:
@@ -295,7 +295,7 @@ class WarView(ui.View):
                 if not self.members:
                     await self.populate()
                 else:
-                    self.rebuild_view()
+                    await self.rebuild_view()  # Add await here
                 await interaction.edit_original_response(view=self)
             mode_btn.callback = switch_to_main
         items.append(mode_btn)
@@ -500,27 +500,39 @@ class WarView(ui.View):
                 now = datetime.datetime.now(datetime.timezone.utc)
                 updated = False
 
-                # Check buttons for expiry
+                # Check ALL records in both main and colonies for expiry
+                expired_items = []
+                expired_records = []
+
+                # Check main planets
+                for member in self.members:
+                    if member["last"] and (now - member["last"]).total_seconds() >= self.cd * 3600:
+                        await self.channel.send(f"✨ **{member['name']}** has respawned!")
+                        member["last"] = None
+                        expired_records.append(member["name"])
+                        updated = True
+
+                # Check colonies
+                for colony in self.colonies:
+                    if colony["last"] and (now - colony["last"]).total_seconds() >= self.cd * 3600:
+                        await self.channel.send(f"✨ Colony at **SB{colony['starbase']} ({colony['x']},{colony['y']})** has respawned!")
+                        colony["last"] = None
+                        expired_records.append(colony["ident"])
+                        updated = True
+
+                # Batch delete expired records
+                if expired_records:
+                    await self.pool.execute(
+                        "DELETE FROM war_attacks WHERE guild_id=$1 AND member=ANY($2)",
+                        self.guild_id, expired_records
+                    )
+
+                # Update visual timers for current page
                 for item in self.children:
                     if hasattr(item, 'expiry'):
                         time_left = (item.expiry - now).total_seconds()
                         
                         if time_left <= 0:
-                            # Handle expiration based on stored info
-                            if hasattr(item, 'member_name'):
-                                await self.channel.send(f"✨ **{item.member_name}** has respawned!")
-                                for m in self.members:
-                                    if m["name"] == item.member_name:
-                                        m["last"] = None
-                                        break
-                            elif hasattr(item, 'colony_info'):
-                                info = item.colony_info
-                                await self.channel.send(f"✨ Colony at **SB{info['starbase']} ({info['x']},{info['y']})** has respawned!")
-                                for colony in self.colonies:
-                                    if colony["starbase"] == info["starbase"] and colony["x"] == info["x"] and colony["y"] == info["y"]:
-                                        colony["last"] = None
-                                        break
-                            
                             item.label = "Attacked"
                             item.style = ButtonStyle.primary
                             item.disabled = False
@@ -542,7 +554,37 @@ class WarView(ui.View):
 
                 if updated:
                     await message.edit(view=self)
+                    if hasattr(self, 'parent_cog'):
+                        for view in self.parent_cog.active_views.values():
+                            if view != self:
+                                await view.rebuild_view()
 
             except Exception as e:
                 print(f"Error in countdown loop: {e}")
             await asyncio.sleep(1)
+
+    # Fix mode switch callbacks
+    async def switch_to_colony(self, interaction):
+        await interaction.response.defer()
+        self.mode = "colony"
+        self.current_page = 0
+        if not self.colonies:
+            for item in self.children:
+                item.disabled = True
+                if item.custom_id == "mode:colonies":
+                    item.label = "Loading..."
+            await interaction.edit_original_response(view=self)
+            await self.populate()
+        else:
+            await self.rebuild_view()  # Add await here
+        await interaction.edit_original_response(view=self)
+
+    async def switch_to_main(self, interaction):
+        await interaction.response.defer()
+        self.mode = "main"
+        self.current_page = 0
+        if not self.members:
+            await self.populate()
+        else:
+            await self.rebuild_view()  # Add await here
+        await interaction.edit_original_response(view=self)
