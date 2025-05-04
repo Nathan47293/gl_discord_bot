@@ -117,74 +117,56 @@ class WarView(ui.View):
             if self.message_channel:
                 self.message_channel = self.message_channel.channel
 
-            if self.mode == "main":
-                if not self.members:
-                    war = await get_current_war(self.pool, self.guild_id)
-                    if war:
-                        enemy = war["enemy_alliance"]
-                    elif hasattr(self, "enemy_alliance"):
-                        enemy = self.enemy_alliance
-                    else:
-                        raise ValueError("No active war found for this guild.")
-                    members_data = await self.pool.fetch(
-                        "SELECT member, main_sb FROM members WHERE alliance=$1 ORDER BY main_sb DESC",
-                        enemy
-                    )
-                    self.max_name_length = max((len(f"{m['member']} SB{m['main_sb']}") for m in members_data), default=0)
-                    self.members = []
-                    for rec in members_data:
-                        m_name = rec["member"]
-                        last = await self.pool.fetchval(
-                            "SELECT last_attack FROM war_attacks WHERE guild_id=$1 AND member=$2",
-                            self.guild_id, m_name
-                        )
-                        self.members.append({
-                            "name": m_name,
-                            "last": last,
-                            "main_sb": rec["main_sb"]
-                        })
-                else:
-                    for member in self.members:
-                        member["last"] = await self.pool.fetchval(
-                            "SELECT last_attack FROM war_attacks WHERE guild_id=$1 AND member=$2",
-                            self.guild_id, member["name"]
-                        )
-            elif self.mode == "colony":
-                if not self.colonies:
-                    war = await get_current_war(self.pool, self.guild_id)
-                    if war:
-                        enemy = war["enemy_alliance"]
-                    elif hasattr(self, "enemy_alliance"):
-                        enemy = self.enemy_alliance
-                    else:
-                        raise ValueError("No active war found for this guild.")
-                    # Query all colonies for enemy alliance sorted by starbase descending.
-                    colonies_data = await self.pool.fetch(
-                        "SELECT id, starbase, x, y FROM colonies WHERE alliance=$1 ORDER BY starbase DESC, x, y",
-                        enemy
-                    )
-                    self.max_name_length = max((len(f"SB{c['starbase']} ({c['x']},{c['y']})") for c in colonies_data), default=0)
-                    self.colonies = []
-                    for rec in colonies_data:
-                        ident = f"colony:{rec['id']}"
-                        last = await self.pool.fetchval(
-                            "SELECT last_attack FROM war_attacks WHERE guild_id=$1 AND member=$2",
-                            self.guild_id, ident
-                        )
-                        self.colonies.append({
-                            "ident": ident,
-                            "starbase": rec["starbase"],
-                            "x": rec["x"],
-                            "y": rec["y"],
-                            "last": last
-                        })
-                else:
-                    for colony in self.colonies:
-                        colony["last"] = await self.pool.fetchval(
-                            "SELECT last_attack FROM war_attacks WHERE guild_id=$1 AND member=$2",
-                            self.guild_id, colony["ident"]
-                        )
-            await self.rebuild_view()  # Fix: await here too
+            # Preload both main and colony data regardless of current mode
+            war = await get_current_war(self.pool, self.guild_id)
+            if war:
+                enemy = war["enemy_alliance"]
+            elif hasattr(self, "enemy_alliance"):
+                enemy = self.enemy_alliance
+            else:
+                raise ValueError("No active war found for this guild.")
+
+            # Load main members
+            members_data = await self.pool.fetch(
+                "SELECT member, main_sb FROM members WHERE alliance=$1 ORDER BY main_sb DESC",
+                enemy
+            )
+            self.members = []
+            for rec in members_data:
+                m_name = rec["member"]
+                last = await self.pool.fetchval(
+                    "SELECT last_attack FROM war_attacks WHERE guild_id=$1 AND member=$2",
+                    self.guild_id, m_name
+                )
+                self.members.append({
+                    "name": m_name,
+                    "last": last,
+                    "main_sb": rec["main_sb"]
+                })
+
+            # Load colonies
+            colonies_data = await self.pool.fetch(
+                "SELECT id, starbase, x, y FROM colonies WHERE alliance=$1 ORDER BY starbase DESC, x, y",
+                enemy
+            )
+            self.colonies = []
+            for rec in colonies_data:
+                ident = f"colony:{rec['id']}"
+                last = await self.pool.fetchval(
+                    "SELECT last_attack FROM war_attacks WHERE guild_id=$1 AND member=$2",
+                    self.guild_id, ident
+                )
+                self.colonies.append({
+                    "ident": ident,
+                    "starbase": rec["starbase"],
+                    "x": rec["x"],
+                    "y": rec["y"],
+                    "last": last
+                })
+
+            # Update view for current mode
+            await self.rebuild_view()
+
         except Exception as e:
             print(f"Error populating WarView: {e}")
 
@@ -274,16 +256,7 @@ class WarView(ui.View):
                 await interaction.response.defer()
                 self.mode = "colony"
                 self.current_page = 0
-                if not self.colonies:
-                    # Disable all buttons but only change Colonies label to Loading
-                    for item in self.children:
-                        item.disabled = True
-                        if item.custom_id == "mode:colonies":
-                            item.label = "Loading..."
-                    await interaction.edit_original_response(view=self)
-                    await self.populate()
-                else:
-                    await self.rebuild_view()  # Add await here
+                await self.rebuild_view()  # Colony data already loaded
                 await interaction.edit_original_response(view=self)
             mode_btn.callback = switch_to_colony
         else:
@@ -292,10 +265,7 @@ class WarView(ui.View):
                 await interaction.response.defer()
                 self.mode = "main"
                 self.current_page = 0
-                if not self.members:
-                    await self.populate()
-                else:
-                    await self.rebuild_view()  # Add await here
+                await self.rebuild_view()  # Main data already loaded
                 await interaction.edit_original_response(view=self)
             mode_btn.callback = switch_to_main
         items.append(mode_btn)
@@ -568,23 +538,12 @@ class WarView(ui.View):
         await interaction.response.defer()
         self.mode = "colony"
         self.current_page = 0
-        if not self.colonies:
-            for item in self.children:
-                item.disabled = True
-                if item.custom_id == "mode:colonies":
-                    item.label = "Loading..."
-            await interaction.edit_original_response(view=self)
-            await self.populate()
-        else:
-            await self.rebuild_view()  # Add await here
+        await self.rebuild_view()  # Colony data already loaded
         await interaction.edit_original_response(view=self)
 
     async def switch_to_main(self, interaction):
         await interaction.response.defer()
         self.mode = "main"
         self.current_page = 0
-        if not self.members:
-            await self.populate()
-        else:
-            await self.rebuild_view()  # Add await here
+        await self.rebuild_view()  # Main data already loaded
         await interaction.edit_original_response(view=self)
