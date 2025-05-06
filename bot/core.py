@@ -42,6 +42,9 @@ default_permissions = discord.Permissions(
     manage_messages=True  # Needed for editing/deleting messages
 )
 
+# Add allowed channel ID
+ALLOWED_CHANNEL = 1330260201118371872
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Main Bot Class Definition
 # ─────────────────────────────────────────────────────────────────────────────
@@ -100,7 +103,7 @@ class GalaxyBot(commands.Bot):
             print("✅ Global commands synced (guild-only)")
 
     async def on_interaction(self, interaction: discord.Interaction):
-        """Global check that prevents DM interactions"""
+        """Global check that prevents DM interactions and wrong channels"""
         if interaction.guild_id is None:
             try:
                 await interaction.response.send_message(
@@ -111,7 +114,17 @@ class GalaxyBot(commands.Bot):
                 pass
             return
 
-        # Let the command handle itself instead of invoking it manually
+        # Check for correct channel
+        if interaction.channel_id != ALLOWED_CHANNEL:
+            try:
+                await interaction.response.send_message(
+                    "❌ Please use bot commands in the designated channel.", 
+                    ephemeral=True
+                )
+            except:
+                pass
+            return
+
         return
 
 # ─────────────────────────────────────────────────────────────────────────────
