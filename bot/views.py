@@ -383,14 +383,12 @@ class WarView(ui.View):
         self.message = message  # Store message reference
         await self.channel.send("✨ War tracker initialized - I will notify when targets respawn!")
         
-        last_full_update = datetime.datetime.now(datetime.timezone.utc)
-        expired_records = []  # Move outside loop to track across iterations
+        expired_records = []  # Track expired records
         
         while not self.is_finished():
             try:
                 now = datetime.datetime.now(datetime.timezone.utc)
                 updated = False
-                force_update = False
 
                 # Handle timer updates
                 for item in self.children:
@@ -447,14 +445,8 @@ class WarView(ui.View):
                     except Exception as e:
                         print(f"Error deleting expired records: {e}")
 
-                # Force full update every 5 minutes
-                if (now - last_full_update).total_seconds() >= 300:
-                    await self.populate()  # Refresh all data
-                    last_full_update = now
-                    force_update = True
-
                 # Update view if needed
-                if updated or force_update:
+                if updated:
                     try:
                         await message.edit(view=self)
                         # Update other views

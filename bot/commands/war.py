@@ -205,10 +205,19 @@ class WarCog(commands.Cog):
             return await inter.response.send_message(
                 "❌ Bad password.", ephemeral=True
             )
-        await self.bot.pool.execute(
-            "DELETE FROM wars WHERE guild_id=$1",
-            str(inter.guild_id)
-        )
+        
+        # Delete both war record and all attacks in a transaction
+        async with self.bot.pool.acquire() as conn:
+            async with conn.transaction():
+                await conn.execute(
+                    "DELETE FROM war_attacks WHERE guild_id=$1",
+                    str(inter.guild_id)
+                )
+                await conn.execute(
+                    "DELETE FROM wars WHERE guild_id=$1",
+                    str(inter.guild_id)
+                )
+                
         await inter.response.send_message(
             "✅ War ended.", ephemeral=True
         )
