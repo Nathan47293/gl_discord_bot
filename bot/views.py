@@ -307,24 +307,36 @@ class WarView(ui.View):
                 now = datetime.datetime.now(datetime.timezone.utc)
                 await interaction.response.defer()
                 
-                # First, update the visuals immediately
+                # Find the member entry
                 for member_entry in self.members:
                     if member_entry["name"] == member:
-                        member_entry["last"] = now
+                        # Check if button is in cooldown state
+                        if member_entry["last"] is not None:
+                            # Remove cooldown immediately
+                            member_entry["last"] = None
+                            # Delete from DB in background
+                            await self.pool.execute(
+                                "DELETE FROM war_attacks WHERE guild_id=$1 AND member=$2",
+                                self.guild_id, member
+                            )
+                        else:
+                            # Set cooldown immediately
+                            member_entry["last"] = now
+                            # Update DB in background
+                            await self.pool.execute(
+                                """
+                                INSERT INTO war_attacks(guild_id, member, last_attack)
+                                VALUES($1,$2,NOW())
+                                ON CONFLICT (guild_id, member)
+                                DO UPDATE SET last_attack = NOW()
+                                """,
+                                self.guild_id, member
+                            )
                         break
+
+                # Update visuals
                 await self.rebuild_view()
                 await interaction.edit_original_response(view=self)
-                
-                # Then do the DB update in background
-                await self.pool.execute(
-                    """
-                    INSERT INTO war_attacks(guild_id, member, last_attack)
-                    VALUES($1,$2,NOW())
-                    ON CONFLICT (guild_id, member)
-                    DO UPDATE SET last_attack = NOW()
-                    """,
-                    self.guild_id, member
-                )
 
                 # Update other views
                 if hasattr(self, 'parent_cog'):
@@ -345,24 +357,36 @@ class WarView(ui.View):
                 now = datetime.datetime.now(datetime.timezone.utc)
                 await interaction.response.defer()
                 
-                # First, update the visuals immediately
+                # Find the colony entry
                 for colony in self.colonies:
                     if colony["ident"] == ident:
-                        colony["last"] = now
+                        # Check if button is in cooldown state
+                        if colony["last"] is not None:
+                            # Remove cooldown immediately
+                            colony["last"] = None
+                            # Delete from DB in background
+                            await self.pool.execute(
+                                "DELETE FROM war_attacks WHERE guild_id=$1 AND member=$2",
+                                self.guild_id, ident
+                            )
+                        else:
+                            # Set cooldown immediately
+                            colony["last"] = now
+                            # Update DB in background
+                            await self.pool.execute(
+                                """
+                                INSERT INTO war_attacks(guild_id, member, last_attack)
+                                VALUES($1,$2,NOW())
+                                ON CONFLICT (guild_id, member)
+                                DO UPDATE SET last_attack = NOW()
+                                """,
+                                self.guild_id, ident
+                            )
                         break
+
+                # Update visuals
                 await self.rebuild_view()
                 await interaction.edit_original_response(view=self)
-                
-                # Then do the DB update in background
-                await self.pool.execute(
-                    """
-                    INSERT INTO war_attacks(guild_id, member, last_attack)
-                    VALUES($1,$2,NOW())
-                    ON CONFLICT (guild_id, member)
-                    DO UPDATE SET last_attack = NOW()
-                    """,
-                    self.guild_id, ident
-                )
 
                 # Update other views
                 if hasattr(self, 'parent_cog'):
