@@ -67,18 +67,30 @@ class AllianceCog(commands.Cog):
         Fetches all alliance names and prints them as a bullet list.
         If there are none, informs the user.
         """
-        # 1) Retrieve the list of names
-        opts = await all_alliances(self.bot.pool)
+        try:
+            # 1) Retrieve the list of names
+            opts = await all_alliances(self.bot.pool)
 
-        # 2) If empty, let the user know
-        if not opts:
-            return await inter.response.send_message(
-                "❌ No alliances recorded.", ephemeral=True
-            )
+            # 2) If empty, let the user know
+            if not opts:
+                await inter.response.send_message(
+                    "❌ No alliances recorded.", ephemeral=True
+                )
+                return
 
-        # 3) Otherwise join them with newlines and send
-        formatted = "\n".join(f"- {o}" for o in opts)
-        await inter.response.send_message(formatted)
+            # 3) Otherwise join them with newlines and send
+            formatted = "\n".join(f"- {o}" for o in opts)
+            await inter.response.send_message(formatted)
+        except discord.InteractionResponded:
+            # Already responded somehow, ignore
+            pass
+        except Exception as e:
+            print(f"Error in list command: {e}")
+            try:
+                if not inter.response.is_done():
+                    await inter.response.send_message("❌ An error occurred.", ephemeral=True)
+            except:
+                pass
 
     @app_commands.command(
         name="setalliance",
