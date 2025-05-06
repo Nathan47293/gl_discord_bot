@@ -268,11 +268,11 @@ class WarView(ui.View):
                         mn = int(math.ceil(remaining/60))
                         attack_label = f"{mn}min"
                     
-                    disabled = remaining > 0
-                    style = ButtonStyle.danger if disabled else ButtonStyle.primary
+                    style = ButtonStyle.danger
+                    disabled = False  # Allow clicking cooldown buttons
                     
                     # Only set expiry if remaining time is positive
-                    if disabled and remaining > 0:  # Add check here
+                    if remaining > 0:  # Add check here
                         attack_btn.expiry = entry["last"] + datetime.timedelta(hours=self.cd)
                         # Store the member/colony info for countdown messages
                         if self.mode == "main":
@@ -304,25 +304,27 @@ class WarView(ui.View):
     def create_callback(self, member):
         async def callback(interaction):
             try:
+                # Disable the clicked button immediately
+                for child in self.children:
+                    if child.custom_id == interaction.custom_id:
+                        child.disabled = True
+                        await interaction.message.edit(view=self)
+                        break
+
                 now = datetime.datetime.now(datetime.timezone.utc)
                 await interaction.response.defer()
                 
-                # Find the member entry
+                # Process in background
                 for member_entry in self.members:
                     if member_entry["name"] == member:
-                        # Check if button is in cooldown state
                         if member_entry["last"] is not None:
-                            # Remove cooldown immediately
                             member_entry["last"] = None
-                            # Delete from DB in background
                             await self.pool.execute(
                                 "DELETE FROM war_attacks WHERE guild_id=$1 AND member=$2",
                                 self.guild_id, member
                             )
                         else:
-                            # Set cooldown immediately
                             member_entry["last"] = now
-                            # Update DB in background
                             await self.pool.execute(
                                 """
                                 INSERT INTO war_attacks(guild_id, member, last_attack)
@@ -334,7 +336,7 @@ class WarView(ui.View):
                             )
                         break
 
-                # Update visuals
+                # Re-enable and update visuals
                 await self.rebuild_view()
                 await interaction.edit_original_response(view=self)
 
@@ -354,25 +356,27 @@ class WarView(ui.View):
     def create_colony_callback(self, ident):
         async def callback(interaction):
             try:
+                # Disable the clicked button immediately
+                for child in self.children:
+                    if child.custom_id == interaction.custom_id:
+                        child.disabled = True
+                        await interaction.message.edit(view=self)
+                        break
+
                 now = datetime.datetime.now(datetime.timezone.utc)
                 await interaction.response.defer()
                 
-                # Find the colony entry
+                # Process in background
                 for colony in self.colonies:
                     if colony["ident"] == ident:
-                        # Check if button is in cooldown state
                         if colony["last"] is not None:
-                            # Remove cooldown immediately
                             colony["last"] = None
-                            # Delete from DB in background
                             await self.pool.execute(
                                 "DELETE FROM war_attacks WHERE guild_id=$1 AND member=$2",
                                 self.guild_id, ident
                             )
                         else:
-                            # Set cooldown immediately
                             colony["last"] = now
-                            # Update DB in background
                             await self.pool.execute(
                                 """
                                 INSERT INTO war_attacks(guild_id, member, last_attack)
@@ -384,7 +388,7 @@ class WarView(ui.View):
                             )
                         break
 
-                # Update visuals
+                # Re-enable and update visuals
                 await self.rebuild_view()
                 await interaction.edit_original_response(view=self)
 
