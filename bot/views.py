@@ -380,7 +380,11 @@ class WarView(ui.View):
     async def start_countdown(self, message):
         import asyncio
         self.channel = message.channel
+        self.message = message  # Store message reference
         await self.channel.send("✨ War tracker initialized - I will notify when targets respawn!")
+        
+        last_full_update = datetime.datetime.now(datetime.timezone.utc)
+        expired_records = []  # Move outside loop to track across iterations
         
         while not self.is_finished():
             try:
@@ -388,66 +392,86 @@ class WarView(ui.View):
                 updated = False
                 force_update = False
 
-                # First handle visual updates immediately
+                # Handle timer updates
                 for item in self.children:
-                    if hasattr(item, 'expiry') and item.expiry is not None:
-                        try:
-                            time_left = (item.expiry - now).total_seconds()
-                        except TypeError:
-                            continue
+                    if not hasattr(item, 'expiry') or item.expiry is None:
+                        continue
+                        
+                    try:
+                        time_left = (item.expiry - now).total_seconds()
+                    except TypeError:
+                        continue
 
-                        if time_left <= 0:
-                            item.label = "Attacked"
-                            item.style = ButtonStyle.primary
-                            item.disabled = False
-                            delattr(item, 'expiry')
-                            updated = True
+                    if time_left <= 0:
+                        item.label = "Attacked"
+                        item.style = ButtonStyle.primary
+                        item.disabled = False
+                        delattr(item, 'expiry')
+                        updated = True
+                    else:
+                        if time_left >= 3600:
+                            hr = int(time_left // 3600)
+                            mn = int((time_left % 3600) // 60)
+                            new_label = f"{self.cd}hr" if mn == 0 else f"{hr}hr {mn}min"
                         else:
-                            if time_left >= 3600:
-                                hr = int(time_left // 3600)
-                                mn = int((time_left % 3600) // 60)
-                                new_label = f"{self.cd}hr" if mn == 0 else f"{hr}hr {mn}min"
-                            else:
-                                mn = int(math.ceil(time_left/60))
-                                new_label = f"{mn}min"
-                            
-                            if item.label != new_label:
-                                item.label = new_label
-                                if not hasattr(self, '_last_update') or (now - self._last_update).total_seconds() >= 1:
-                                    updated = True
-                                    self._last_update = now
+                            mn = int(math.ceil(time_left/60))
+                            new_label = f"{mn}min"
+                        
+                        if item.label != new_label:
+                            item.label = new_label
+                            updated = True
 
-                # Check for respawns
+                # Check for respawns and DB cleanup
                 for member in self.members:
                     if member["last"] and (now - member["last"]).total_seconds() >= self.cd * 3600:
                         await self.channel.send(f"✨ **{member['name']}** has respawned!")
                         member["last"] = None
-                        expired_records = [member["name"]]
+                        expired_records.append(member["name"])
                         updated = True
 
                 for colony in self.colonies:
                     if colony["last"] and (now - colony["last"]).total_seconds() >= self.cd * 3600:
                         await self.channel.send(f"✨ Colony at **SB{colony['starbase']} ({colony['x']},{colony['y']})** has respawned!")
                         colony["last"] = None
-                        expired_records = [colony["ident"]]
+                        expired_records.append(colony["ident"])
                         updated = True
 
+                # Batch delete expired records
                 if expired_records:
-                    await self.pool.execute(
-                        "DELETE FROM war_attacks WHERE guild_id=$1 AND member=ANY($2)",
-                        self.guild_id, expired_records
-                    )
+                    try:
+                        await self.pool.execute(
+                            "DELETE FROM war_attacks WHERE guild_id=$1 AND member=ANY($2)",
+                            self.guild_id, expired_records
+                        )
+                        expired_records = []  # Clear after successful deletion
+                    except Exception as e:
+                        print(f"Error deleting expired records: {e}")
+
+                # Force full update every 5 minutes
+                if (now - last_full_update).total_seconds() >= 300:
+                    await self.populate()  # Refresh all data
+                    last_full_update = now
+                    force_update = True
 
                 # Update view if needed
                 if updated or force_update:
-                    await message.edit(view=self)
-                    if hasattr(self, 'parent_cog'):
-                        for view in self.parent_cog.active_views.values():
-                            if view != self:
-                                await view.rebuild_view()
+                    try:
+                        await message.edit(view=self)
+                        # Update other views
+                        if hasattr(self, 'parent_cog'):
+                            for view in self.parent_cog.active_views.values():
+                                if view != self and view.message:
+                                    await view.rebuild_view()
+                                    await view.message.edit(view=view)
+                    except Exception as e:
+                        print(f"Error updating view: {e}")
 
             except Exception as e:
                 print(f"Error in countdown loop: {e}")
+                if hasattr(e, '__traceback__'):
+                    import traceback
+                    traceback.print_tb(e.__traceback__)
+            
             await asyncio.sleep(1)
 
     # Fix mode switch callbacks
