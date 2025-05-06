@@ -304,27 +304,29 @@ class WarView(ui.View):
     def create_callback(self, member):
         async def callback(interaction):
             try:
-                # Disable the clicked button immediately
-                for child in self.children:
-                    if child.custom_id == interaction.custom_id:
-                        child.disabled = True
-                        await interaction.message.edit(view=self)
-                        break
-
                 now = datetime.datetime.now(datetime.timezone.utc)
                 await interaction.response.defer()
-                
-                # Process in background
+
+                # Find and update the member entry
                 for member_entry in self.members:
                     if member_entry["name"] == member:
                         if member_entry["last"] is not None:
                             member_entry["last"] = None
+                            # Update visuals first
+                            await self.rebuild_view()
+                            await interaction.edit_original_response(view=self)
+                            # Then delete from DB
                             await self.pool.execute(
                                 "DELETE FROM war_attacks WHERE guild_id=$1 AND member=$2",
                                 self.guild_id, member
                             )
                         else:
+                            # Set cooldown first
                             member_entry["last"] = now
+                            # Update visuals immediately
+                            await self.rebuild_view()
+                            await interaction.edit_original_response(view=self)
+                            # Then update DB
                             await self.pool.execute(
                                 """
                                 INSERT INTO war_attacks(guild_id, member, last_attack)
@@ -336,20 +338,18 @@ class WarView(ui.View):
                             )
                         break
 
-                # Re-enable and update visuals
-                await self.rebuild_view()
-                await interaction.edit_original_response(view=self)
-
                 # Update other views
                 if hasattr(self, 'parent_cog'):
                     for view in self.parent_cog.active_views.values():
-                        if view != self:
+                        if view != self and view.message:
                             await view.rebuild_view()
+                            await view.message.edit(view=view)
 
             except Exception as e:
+                print(f"Error in button callback: {e}")
                 try:
-                    await interaction.followup.send(f"Error: {e}", ephemeral=True)
-                except Exception:
+                    await interaction.followup.send("❌ Error processing button click", ephemeral=True)
+                except:
                     pass
         return callback
 
