@@ -74,7 +74,7 @@ class MemberCog(commands.Cog):
 
     @app_commands.command(
         name="addmember",
-        description="Add a member to an alliance (with main SB)."
+        description="Add a member to an alliance (password-protected)."
     )
     @app_commands.autocomplete(alliance=alliance_autocomplete)
     @app_commands.autocomplete(member=member_autocomplete)
@@ -83,15 +83,16 @@ class MemberCog(commands.Cog):
         inter: discord.Interaction,
         alliance: str,
         member: str,
-        main_sb: app_commands.Range[int, 1, 9]
+        main_sb: app_commands.Range[int, 1, 9],
+        password: str
     ):
         """
-        /addmember <alliance> <member> <main_sb>
-        Adds a new member with a specified main starbase level.
-        1) Validates the alliance exists.
-        2) Ensures the member isn't already registered.
-        3) Inserts into the DB.
+        /addmember <alliance> <member> <main_sb> <password>
         """
+        # Verify password first
+        if password != ADMIN_PASS:
+            return await inter.response.send_message("❌ Bad password.", ephemeral=True)
+
         # 1) Alliance must exist
         if not await alliance_exists(self.bot.pool, alliance):
             return await inter.response.send_message(
@@ -178,7 +179,7 @@ class MemberCog(commands.Cog):
 
     @app_commands.command(
         name="renamemember",
-        description="Rename a member (keeps colonies)."
+        description="Rename a member (password-protected)."
     )
     @app_commands.autocomplete(alliance=alliance_autocomplete)
     @app_commands.autocomplete(old=member_autocomplete)  # Autocomplete for the `old` parameter
@@ -187,14 +188,15 @@ class MemberCog(commands.Cog):
         inter: discord.Interaction,
         alliance: str,
         old: str,   # original name
-        new: str    # new desired name
+        new: str,   # new desired name
+        password: str
     ):
         """
-        /renamemember <alliance> <old> <new>
-        Renames a member:
-        1) Validates `old` exists and `new` is not taken.
-        2) Inserts `new`, updates colonies, deletes `old`—all in one transaction.
+        /renamemember <alliance> <old> <new> <password>
         """
+        if password != ADMIN_PASS:
+            return await inter.response.send_message("❌ Bad password.", ephemeral=True)
+            
         # 1) Validate existence and uniqueness
         if not await member_exists(self.bot.pool, alliance, old):
             return await inter.response.send_message(

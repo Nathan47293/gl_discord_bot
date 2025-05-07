@@ -11,7 +11,8 @@ from ..db import (
     get_members_with_colonies,# Retrieves all members plus their colonies for an alliance
     all_alliances,           # Fetches the list of all alliance names
     MAX_COLONIES,            # Maximum colonies allowed per member (e.g. 11)
-    MAX_MEMBERS              # Maximum members allowed per alliance (e.g. 50)
+    MAX_MEMBERS,             # Maximum members allowed per alliance (e.g. 50)
+    ADMIN_PASS               # Add this import
 )
 
 class ColonyCog(commands.Cog):
@@ -113,7 +114,7 @@ class ColonyCog(commands.Cog):
 
     @app_commands.command(
         name="removecolony",
-        description="Remove a specific colony."
+        description="Remove a specific colony (password-protected)."
     )
     @app_commands.autocomplete(alliance=alliance_autocomplete)
     @app_commands.autocomplete(member=member_autocomplete)
@@ -124,14 +125,16 @@ class ColonyCog(commands.Cog):
         member: str,
         starbase: app_commands.Range[int, 1, 9],
         x: int,
-        y: int
+        y: int,
+        password: str
     ):
         """
-        /removecolony <alliance> <member> <starbase> <x> <y>
-        Deletes the specific colony matching all parameters.
-        - Validates member exists.
-        - Attempts DELETE and checks affected rows.
+        /removecolony <alliance> <member> <starbase> <x> <y> <password>
         """
+        # Verify password first
+        if password != ADMIN_PASS:
+            return await inter.response.send_message("❌ Bad password.", ephemeral=True)
+
         # 1) Ensure the member exists
         if not await member_exists(self.bot.pool, alliance, member):
             return await inter.response.send_message(

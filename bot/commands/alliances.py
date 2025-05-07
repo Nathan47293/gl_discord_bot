@@ -23,19 +23,22 @@ class AllianceCog(commands.Cog):
 
     @app_commands.command(
         name="addalliance",
-        description="Create a new alliance."
+        description="Create a new alliance (password-protected)."
     )
     async def addalliance(
         self,
         inter: discord.Interaction,
-        name: str
+        name: str,
+        password: str
     ):
         """
-        /addalliance <name>
+        /addalliance <name> <password>
         Creates a new alliance record in the database.
-        - If the alliance already exists, we send an error.
-        - Otherwise, we insert it and confirm success.
         """
+        # Verify password first
+        if password != ADMIN_PASS:
+            return await inter.response.send_message("❌ Bad password.", ephemeral=True)
+
         # 1) Check if the name is already taken
         if await alliance_exists(self.bot.pool, name):
             # ephemeral=True: only the command user sees this message
