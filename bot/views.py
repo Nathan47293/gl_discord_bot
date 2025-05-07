@@ -33,6 +33,7 @@ class WarView(ui.View):
         self.mode = "main"      # "main" for members, "colony" for colonies
         self.colonies = []      # cache for colony mode
         self.members = []       # cache for main mode
+        self.notified_respawns = set()  # Add this to track notifications
 
     async def send_safe(self, channel, message):
         """Helper method to safely send messages with permission checking"""
@@ -470,17 +471,29 @@ class WarView(ui.View):
                 # Check for respawns and DB cleanup
                 for member in self.members:
                     if member["last"] and (now - member["last"]).total_seconds() >= self.cd * 3600:
-                        await self.channel.send(f"✨ **{member['name']}** has respawned!")
+                        notify_key = f"member:{member['name']}:{member['last'].isoformat()}"
+                        if notify_key not in self.notified_respawns:
+                            await self.channel.send(f"✨ **{member['name']}** has respawned!")
+                            self.notified_respawns.add(notify_key)
                         member["last"] = None
                         expired_records.append(member["name"])
                         updated = True
 
                 for colony in self.colonies:
                     if colony["last"] and (now - colony["last"]).total_seconds() >= self.cd * 3600:
-                        await self.channel.send(f"✨ Colony at **SB{colony['starbase']} ({colony['x']},{colony['y']})** has respawned!")
+                        notify_key = f"colony:{colony['ident']}:{colony['last'].isoformat()}"
+                        if notify_key not in self.notified_respawns:
+                            await self.channel.send(f"✨ Colony at **SB{colony['starbase']} ({colony['x']},{colony['y']})** has respawned!")
+                            self.notified_respawns.add(notify_key)
                         colony["last"] = None
                         expired_records.append(colony["ident"])
                         updated = True
+
+                # Cleanup old notification keys (over 1 hour old)
+                self.notified_respawns = {
+                    key for key in self.notified_respawns 
+                    if now - datetime.datetime.fromisoformat(key.split(':')[2]) < datetime.timedelta(hours=1)
+                }
 
                 # Batch delete expired records
                 if expired_records:
