@@ -457,6 +457,24 @@ class WarView(ui.View):
                 time_since_update = (now - self.last_timer_update).total_seconds()
                 should_update_timers = time_since_update >= self.update_interval
 
+                # Clean up old notification keys first
+                try:
+                    valid_keys = set()
+                    for key in self.notified_respawns:
+                        try:
+                            parts = key.split(':')
+                            if len(parts) != 3:
+                                continue
+                            timestamp = datetime.datetime.fromisoformat(parts[2])
+                            if (now - timestamp) < datetime.timedelta(hours=1):
+                                valid_keys.add(key)
+                        except (ValueError, IndexError):
+                            continue
+                    self.notified_respawns = valid_keys
+                except Exception as e:
+                    print(f"Error cleaning notification keys: {e}")
+                    self.notified_respawns = set()  # Reset if error
+
                 # Handle timer updates
                 for item in self.children:
                     if not hasattr(item, 'expiry') or item.expiry is None:
