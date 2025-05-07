@@ -441,6 +441,7 @@ class WarView(ui.View):
                 now = datetime.datetime.now(datetime.timezone.utc)
                 updated = False
                 force_update = False  # Flag for forced updates on cooldown expiry
+                expired_records_set = set()  # Track expired records with a set
 
                 # Only process timer updates every 5 minutes
                 time_since_update = (now - self.last_timer_update).total_seconds()
@@ -488,8 +489,9 @@ class WarView(ui.View):
                         if notify_key not in self.notified_respawns:
                             await self.channel.send(f"✨ **{member['name']}** has respawned!")
                             self.notified_respawns.add(notify_key)
+                            # Add to expired records set
+                            expired_records_set.add(member["name"])
                         member["last"] = None
-                        expired_records.append(member["name"])
                         updated = True
 
                 for colony in self.colonies:
@@ -498,9 +500,30 @@ class WarView(ui.View):
                         if notify_key not in self.notified_respawns:
                             await self.channel.send(f"✨ Colony at **SB{colony['starbase']} ({colony['x']},{colony['y']})** has respawned!")
                             self.notified_respawns.add(notify_key)
+                            # Add to expired records set
+                            expired_records_set.add(colony["ident"])
                         colony["last"] = None
-                        expired_records.append(colony["ident"])
                         updated = True
+
+                # Fix timezone issue in notification cleanup
+                self.notified_respawns = {
+                    key for key in self.notified_respawns 
+                    if (now - datetime.datetime.fromisoformat(key.split(':')[2]).replace(tzinfo=datetime.timezone.utc)) < datetime.timedelta(hours=1)
+                }
+
+                # Delete expired records if we have any
+                if expired_records_set:
+                    try:
+                        # Convert set to list for DB operation
+                        expired_records = list(expired_records_set)
+                        print(f"Deleting expired war attacks: {expired_records}")
+                        result = await self.pool.execute(
+                            "DELETE FROM war_attacks WHERE guild_id=$1 AND member=ANY($2)",
+                            self.guild_id, expired_records
+                        )
+                        print(f"Delete result: {result}")
+                    except Exception as e:
+                        print(f"Error deleting expired records: {e}")
 
                 # Cleanup old notification keys (over 1 hour old)
                 self.notified_respawns = {
