@@ -127,7 +127,19 @@ class WarCog(commands.Cog):
         Displays the current war attack screen.
         """
         try:
-            # Ensure your alliance is set
+            # Cleanup any previous view
+            if str(inter.guild_id) in self.active_views:
+                old_view = self.active_views[str(inter.guild_id)]
+                if hasattr(old_view, '_countdown_task') and old_view._countdown_task:
+                    old_view._countdown_task.cancel()
+                if old_view.message:
+                    try:
+                        await old_view.message.edit(view=None)
+                    except:
+                        pass  # Message might be gone
+                self.active_views.pop(str(inter.guild_id))
+
+            # Rest of the existing war command...
             own = await get_active_alliance(self.bot.pool, str(inter.guild_id))
             if not own:
                 await inter.response.send_message("❌ Set your alliance first with /setalliance.", ephemeral=True)
