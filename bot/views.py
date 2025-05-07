@@ -119,186 +119,202 @@ class WarView(ui.View):
             print(f"Error populating WarView: {e}")
 
     async def rebuild_view(self):
-        if self._countdown_task and self._countdown_task.done() and self.bot:
-            # Restart countdown if it stopped and we have bot reference
-            self._countdown_task = self.bot.loop.create_task(
-                self.start_countdown(self.message)
-            )
-            
-        now = datetime.datetime.now(datetime.timezone.utc)
-        cache = self.members if self.mode=="main" else self.colonies
+        try:
+            # First check if message is still valid
+            if hasattr(self, 'message') and self.message:
+                try:
+                    # Try to fetch the message to ensure it exists
+                    self.message = await self.channel.fetch_message(self.message.id)
+                except (discord.NotFound, discord.Forbidden):
+                    # Message no longer exists or accessible
+                    return False
 
-        # Clear expired attacks from cache and log
-        expired_count = 0
-        for entry in cache:
-            if entry["last"]:
-                elapsed = (now - entry["last"]).total_seconds()
-                if elapsed >= self.cd * 3600:
-                    entry["last"] = None
-                    expired_count += 1
-        
-        if expired_count > 0:
-            print(f"Cleared {expired_count} expired attacks from cache")
-
-        # Rebuild pagination and grid from cached self.members without DB queries.
-        members_per_column = 4
-        columns = 2
-        page_size = members_per_column * columns
-        total_pages = math.ceil(len(cache) / page_size) if cache else 1
-        if self.current_page < 0:
-            self.current_page = 0
-        elif self.current_page >= total_pages:
-            self.current_page = total_pages - 1
-
-        self.clear_items()
-        # Pagination controls:
-        items = []
-        if self.current_page > 0:
-            prev_btn = ui.Button(
-                label="Previous",
-                style=ButtonStyle.primary,
-                custom_id="pagination:prev"
-            )
-            async def prev_page(interaction):
-                await interaction.response.defer()
-                self.current_page -= 1
-                await self.rebuild_view()  # Add await here
-                await interaction.edit_original_response(view=self)
-            prev_btn.callback = prev_page
-            items.append(prev_btn)
-        tracker_btn = ui.Button(
-            label=f"Page {self.current_page+1}/{total_pages}",
-            style=ButtonStyle.secondary,
-            custom_id="pagination:tracker",
-            disabled=True
-        )
-        items.append(tracker_btn)
-        if self.current_page < total_pages - 1:
-            next_btn = ui.Button(
-                label="Next",
-                style=ButtonStyle.primary,
-                custom_id="pagination:next"
-            )
-            async def next_page(interaction):
-                await interaction.response.defer()
-                self.current_page += 1
-                await self.rebuild_view()  # Add await here
-                await interaction.edit_original_response(view=self)
-            next_btn.callback = next_page
-            items.append(next_btn)
-        refresh_btn = ui.Button(
-            label="Refresh",
-            style=ButtonStyle.secondary,
-            custom_id="pagination:refresh"
-        )
-        async def refresh_page(interaction):
-            await interaction.response.defer()
-            await self.populate()
-            await interaction.edit_original_response(view=self)
-        refresh_btn.callback = refresh_page
-        items.append(refresh_btn)
-        # Mode switch button.
-        if self.mode == "main":
-            mode_btn = ui.Button(label="Colonies", style=ButtonStyle.primary, custom_id="mode:colonies")
-            async def switch_to_colony(interaction):
-                await interaction.response.defer()
-                self.mode = "colony"
-                self.current_page = 0
-                await self.rebuild_view()  # Colony data already loaded
-                await interaction.edit_original_response(view=self)
-            mode_btn.callback = switch_to_colony
-        else:
-            mode_btn = ui.Button(label="Main Planets", style=ButtonStyle.primary, custom_id="mode:main")
-            async def switch_to_main(interaction):
-                await interaction.response.defer()
-                self.mode = "main"
-                self.current_page = 0
-                await self.rebuild_view()  # Main data already loaded
-                await interaction.edit_original_response(view=self)
-            mode_btn.callback = switch_to_main
-        items.append(mode_btn)
-
-        for btn in items:
-            btn.row = 0
-            self.add_item(btn)
-
-        # Build member grid:
-        for r in range(members_per_column):
-            for c in range(columns):
-                idx = self.current_page * page_size + (c * members_per_column + r)
-                if idx >= len(cache):
-                    continue
-                entry = cache[idx]
-                
-                # Create name button
-                if self.mode == "main":
-                    label = f"{entry['name']} SB{entry['main_sb']}"
-                    custom_id_prefix = "war_atk:"
-                    callback_func = self.create_callback(entry["name"])
-                else:
-                    label = f"SB{entry['starbase']} ({entry['x']},{entry['y']})"
-                    custom_id_prefix = "war_col_atk:"
-                    callback_func = self.create_colony_callback(entry["ident"])
-
-                name_btn = ui.Button(
-                    label=label,
-                    style=ButtonStyle.secondary,
-                    custom_id=f"label:{idx}",
-                    disabled=True,
-                    row=r+1
+            if self._countdown_task and self._countdown_task.done() and self.bot:
+                # Restart countdown if it stopped and we have bot reference
+                self._countdown_task = self.bot.loop.create_task(
+                    self.start_countdown(self.message)
                 )
                 
-                # Create attack button with all properties set
-                attack_custom_id = f"{custom_id_prefix}{entry['name'] if self.mode == 'main' else entry['ident']}"
-                
-                attack_btn = ui.Button(
-                    custom_id=attack_custom_id,
-                    row=r+1
-                )
-                
+            now = datetime.datetime.now(datetime.timezone.utc)
+            cache = self.members if self.mode=="main" else self.colonies
+
+            # Clear expired attacks from cache and log
+            expired_count = 0
+            for entry in cache:
                 if entry["last"]:
                     elapsed = (now - entry["last"]).total_seconds()
-                    remaining = max(0, self.cd * 3600 - elapsed)
+                    if elapsed >= self.cd * 3600:
+                        entry["last"] = None
+                        expired_count += 1
+            
+            if expired_count > 0:
+                print(f"Cleared {expired_count} expired attacks from cache")
+
+            # Rebuild pagination and grid from cached self.members without DB queries.
+            members_per_column = 4
+            columns = 2
+            page_size = members_per_column * columns
+            total_pages = math.ceil(len(cache) / page_size) if cache else 1
+            if self.current_page < 0:
+                self.current_page = 0
+            elif self.current_page >= total_pages:
+                self.current_page = total_pages - 1
+
+            self.clear_items()
+            # Pagination controls:
+            items = []
+            if self.current_page > 0:
+                prev_btn = ui.Button(
+                    label="Previous",
+                    style=ButtonStyle.primary,
+                    custom_id="pagination:prev"
+                )
+                async def prev_page(interaction):
+                    await interaction.response.defer()
+                    self.current_page -= 1
+                    await self.rebuild_view()  # Add await here
+                    await interaction.edit_original_response(view=self)
+                prev_btn.callback = prev_page
+                items.append(prev_btn)
+            tracker_btn = ui.Button(
+                label=f"Page {self.current_page+1}/{total_pages}",
+                style=ButtonStyle.secondary,
+                custom_id="pagination:tracker",
+                disabled=True
+            )
+            items.append(tracker_btn)
+            if self.current_page < total_pages - 1:
+                next_btn = ui.Button(
+                    label="Next",
+                    style=ButtonStyle.primary,
+                    custom_id="pagination:next"
+                )
+                async def next_page(interaction):
+                    await interaction.response.defer()
+                    self.current_page += 1
+                    await self.rebuild_view()  # Add await here
+                    await interaction.edit_original_response(view=self)
+                next_btn.callback = next_page
+                items.append(next_btn)
+            refresh_btn = ui.Button(
+                label="Refresh",
+                style=ButtonStyle.secondary,
+                custom_id="pagination:refresh"
+            )
+            async def refresh_page(interaction):
+                await interaction.response.defer()
+                await self.populate()
+                await interaction.edit_original_response(view=self)
+            refresh_btn.callback = refresh_page
+            items.append(refresh_btn)
+            # Mode switch button.
+            if self.mode == "main":
+                mode_btn = ui.Button(label="Colonies", style=ButtonStyle.primary, custom_id="mode:colonies")
+                async def switch_to_colony(interaction):
+                    await interaction.response.defer()
+                    self.mode = "colony"
+                    self.current_page = 0
+                    await self.rebuild_view()  # Colony data already loaded
+                    await interaction.edit_original_response(view=self)
+                mode_btn.callback = switch_to_colony
+            else:
+                mode_btn = ui.Button(label="Main Planets", style=ButtonStyle.primary, custom_id="mode:main")
+                async def switch_to_main(interaction):
+                    await interaction.response.defer()
+                    self.mode = "main"
+                    self.current_page = 0
+                    await self.rebuild_view()  # Main data already loaded
+                    await interaction.edit_original_response(view=self)
+                mode_btn.callback = switch_to_main
+            items.append(mode_btn)
+
+            for btn in items:
+                btn.row = 0
+                self.add_item(btn)
+
+            # Build member grid:
+            for r in range(members_per_column):
+                for c in range(columns):
+                    idx = self.current_page * page_size + (c * members_per_column + r)
+                    if idx >= len(cache):
+                        continue
+                    entry = cache[idx]
                     
-                    if remaining >= 3600:
-                        hr = int(remaining // 3600)
-                        mn = int((remaining % 3600) // 60)
-                        attack_label = f"{self.cd}hr" if mn == 0 else f"{hr}hr {mn}min"
+                    # Create name button
+                    if self.mode == "main":
+                        label = f"{entry['name']} SB{entry['main_sb']}"
+                        custom_id_prefix = "war_atk:"
+                        callback_func = self.create_callback(entry["name"])
                     else:
-                        mn = int(math.ceil(remaining/60))
-                        attack_label = f"{mn}min"
+                        label = f"SB{entry['starbase']} ({entry['x']},{entry['y']})"
+                        custom_id_prefix = "war_col_atk:"
+                        callback_func = self.create_colony_callback(entry["ident"])
+
+                    name_btn = ui.Button(
+                        label=label,
+                        style=ButtonStyle.secondary,
+                        custom_id=f"label:{idx}",
+                        disabled=True,
+                        row=r+1
+                    )
                     
-                    style = ButtonStyle.danger
-                    disabled = False  # Allow clicking cooldown buttons
+                    # Create attack button with all properties set
+                    attack_custom_id = f"{custom_id_prefix}{entry['name'] if self.mode == 'main' else entry['ident']}"
                     
-                    # Only set expiry if remaining time is positive
-                    if remaining > 0:  # Add check here
-                        attack_btn.expiry = entry["last"] + datetime.timedelta(hours=self.cd)
-                        # Store the member/colony info for countdown messages
-                        if self.mode == "main":
-                            attack_btn.member_name = entry["name"]
+                    attack_btn = ui.Button(
+                        custom_id=attack_custom_id,
+                        row=r+1
+                    )
+                    
+                    if entry["last"]:
+                        elapsed = (now - entry["last"]).total_seconds()
+                        remaining = max(0, self.cd * 3600 - elapsed)
+                        
+                        if remaining >= 3600:
+                            hr = int(remaining // 3600)
+                            mn = int((remaining % 3600) // 60)
+                            attack_label = f"{self.cd}hr" if mn == 0 else f"{hr}hr {mn}min"
                         else:
-                            attack_btn.colony_info = {
-                                "starbase": entry["starbase"],
-                                "x": entry["x"],
-                                "y": entry["y"]
-                            }
-                else:
-                    attack_label = "Attacked"
-                    disabled = False
-                    style = ButtonStyle.primary
+                            mn = int(math.ceil(remaining/60))
+                            attack_label = f"{mn}min"
+                        
+                        style = ButtonStyle.danger
+                        disabled = False  # Allow clicking cooldown buttons
+                        
+                        # Only set expiry if remaining time is positive
+                        if remaining > 0:  # Add check here
+                            attack_btn.expiry = entry["last"] + datetime.timedelta(hours=self.cd)
+                            # Store the member/colony info for countdown messages
+                            if self.mode == "main":
+                                attack_btn.member_name = entry["name"]
+                            else:
+                                attack_btn.colony_info = {
+                                    "starbase": entry["starbase"],
+                                    "x": entry["x"],
+                                    "y": entry["y"]
+                                }
+                    else:
+                        attack_label = "Attacked"
+                        disabled = False
+                        style = ButtonStyle.primary
 
-                # Update button properties after creation
-                attack_btn.label = attack_label
-                attack_btn.style = style
-                attack_btn.disabled = disabled
-                attack_btn.callback = callback_func
-                
-                if entry["last"]:
-                    attack_btn.last_attack = entry["last"]
+                    # Update button properties after creation
+                    attack_btn.label = attack_label
+                    attack_btn.style = style
+                    attack_btn.disabled = disabled
+                    attack_btn.callback = callback_func
+                    
+                    if entry["last"]:
+                        attack_btn.last_attack = entry["last"]
 
-                self.add_item(name_btn)
-                self.add_item(attack_btn)
+                    self.add_item(name_btn)
+                    self.add_item(attack_btn)
+
+        except Exception as e:
+            print(f"Error in rebuild_view: {e}")
+            return False
+
+        return True
 
     # Updated callback to update only the pressed button and attach new last_attack timestamp
     def create_callback(self, member):
@@ -409,9 +425,13 @@ class WarView(ui.View):
         import asyncio
         self.channel = message.channel
         self.message = message  # Store message reference
-        await self.channel.send("✨ War tracker initialized - I will notify when targets respawn!")
+        try:
+            await self.channel.send("✨ War tracker initialized - I will notify when targets respawn!")
+        except:
+            print("Failed to send initialization message")
         
         expired_records = []  # Track expired records
+        error_count = 0  # Track consecutive errors
         
         while not self.is_finished():
             try:
@@ -476,15 +496,44 @@ class WarView(ui.View):
                 # Update view if needed
                 if updated:
                     try:
-                        await message.edit(view=self)
-                        # Update other views
+                        # Check if message still exists and is accessible
+                        try:
+                            # Fetch fresh message object
+                            message = await self.channel.fetch_message(message.id)
+                            self.message = message  # Update reference
+                            await message.edit(view=self)
+                            error_count = 0  # Reset error counter on success
+                        except discord.NotFound:
+                            print("War message was deleted, stopping countdown")
+                            return
+                        except discord.Forbidden:
+                            print("Lost permissions to edit message")
+                            return
+                            
+                        # Update other views with error handling
                         if hasattr(self, 'parent_cog'):
-                            for view in self.parent_cog.active_views.values():
+                            for guild_id, view in self.parent_cog.active_views.items():
                                 if view != self and view.message:
-                                    await view.rebuild_view()
-                                    await view.message.edit(view=view)
+                                    try:
+                                        # Fetch fresh message for other views too
+                                        other_msg = await view.channel.fetch_message(view.message.id)
+                                        view.message = other_msg
+                                        await view.rebuild_view()
+                                        await other_msg.edit(view=view)
+                                    except (discord.NotFound, discord.Forbidden):
+                                        # Remove invalid views
+                                        self.parent_cog.active_views.pop(guild_id, None)
+                                    except Exception as e:
+                                        print(f"Error updating other view: {e}")
+
                     except Exception as e:
+                        error_count += 1
                         print(f"Error updating view: {e}")
+                        
+                        # If too many consecutive errors, stop the countdown
+                        if error_count >= 5:
+                            print("Too many consecutive errors, stopping countdown")
+                            return
 
             except Exception as e:
                 print(f"Error in countdown loop: {e}")
@@ -492,7 +541,7 @@ class WarView(ui.View):
                     import traceback
                     traceback.print_tb(e.__traceback__)
             
-            await asyncio.sleep(1)
+            await asyncio.sleep(5)  # Increased sleep time to reduce API calls
 
     # Fix mode switch callbacks
     async def switch_to_colony(self, interaction):
