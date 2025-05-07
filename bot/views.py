@@ -34,6 +34,8 @@ class WarView(ui.View):
         self.colonies = []      # cache for colony mode
         self.members = []       # cache for main mode
         self.notified_respawns = set()  # Add this to track notifications
+        self.last_timer_update = datetime.datetime.now(datetime.timezone.utc)
+        self.update_interval = 300  # 5 minutes in seconds
 
     async def send_safe(self, channel, message):
         """Helper method to safely send messages with permission checking"""
@@ -438,6 +440,11 @@ class WarView(ui.View):
             try:
                 now = datetime.datetime.now(datetime.timezone.utc)
                 updated = False
+                force_update = False  # Flag for forced updates on cooldown expiry
+
+                # Only process timer updates every 5 minutes
+                time_since_update = (now - self.last_timer_update).total_seconds()
+                should_update_timers = time_since_update >= self.update_interval
 
                 # Handle timer updates
                 for item in self.children:
@@ -455,7 +462,9 @@ class WarView(ui.View):
                         item.disabled = False
                         delattr(item, 'expiry')
                         updated = True
-                    else:
+                        force_update = True  # Force update when cooldown expires
+                    elif should_update_timers:
+                        # Only update labels every 5 minutes
                         if time_left >= 3600:
                             hr = int(time_left // 3600)
                             mn = int((time_left % 3600) // 60)
@@ -467,6 +476,10 @@ class WarView(ui.View):
                         if item.label != new_label:
                             item.label = new_label
                             updated = True
+
+                # Only update last_timer_update if we actually processed updates
+                if should_update_timers and (updated or force_update):
+                    self.last_timer_update = now
 
                 # Check for respawns and DB cleanup
                 for member in self.members:
@@ -507,7 +520,7 @@ class WarView(ui.View):
                         print(f"Error deleting expired records: {e}")
 
                 # Update view if needed
-                if updated:
+                if updated or force_update:
                     try:
                         # Check if message still exists and is accessible
                         try:
@@ -554,7 +567,7 @@ class WarView(ui.View):
                     import traceback
                     traceback.print_tb(e.__traceback__)
             
-            await asyncio.sleep(5)  # Increased sleep time to reduce API calls
+            await asyncio.sleep(30)  # Check every 30 seconds, but only update UI every 5 minutes
 
     # Fix mode switch callbacks
     async def switch_to_colony(self, interaction):
