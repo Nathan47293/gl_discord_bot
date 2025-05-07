@@ -61,6 +61,16 @@ class WarView(ui.View):
             print(f"View ID: {id(self)}")
             print(f"Has parent_cog: {hasattr(self, 'parent_cog')}")
             print(f"Has channel: {hasattr(self, 'channel')}")
+
+            # Clean up old war attacks that aren't associated with active wars
+            try:
+                result = await self.pool.execute("""
+                    DELETE FROM war_attacks 
+                    WHERE guild_id NOT IN (SELECT guild_id FROM wars)
+                """)
+                print(f"Cleaned up war attacks from inactive wars: {result}")
+            except Exception as e:
+                print(f"Error cleaning up old war attacks: {e}")
             
             # Continue with normal population...
             # Store channel reference for messages
