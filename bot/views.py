@@ -2,7 +2,8 @@
 
 import datetime
 import math
-from discord import ButtonStyle, ui
+import discord  # Add explicit discord import
+from discord import ButtonStyle, ui, errors
 
 # Import helper to fetch the current war state
 from .db import get_current_war
@@ -36,6 +37,8 @@ class WarView(ui.View):
         self.notified_respawns = set()  # Add this to track notifications
         self.last_timer_update = datetime.datetime.now(datetime.timezone.utc)
         self.update_interval = 300  # 5 minutes in seconds
+        self.last_button_press = {}  # Add rate limiting tracking
+        self.button_cooldown = 1.0  # 1 second cooldown between clicks
 
     async def send_safe(self, channel, message):
         """Helper method to safely send messages with permission checking"""
@@ -329,12 +332,28 @@ class WarView(ui.View):
 
         return True
 
+    async def handle_button_click(self, interaction, entry_type: str, identifier: str, last_attack: datetime.datetime = None):
+        """Centralized button click handler with rate limiting"""
+        now = datetime.datetime.now(datetime.timezone.utc)
+        
+        # Rate limiting check
+        last_press = self.last_button_press.get(identifier)
+        if last_press and (now - last_press).total_seconds() < self.button_cooldown:
+            await interaction.response.send_message("Please wait a moment between clicks.", ephemeral=True)
+            return False
+            
+        self.last_button_press[identifier] = now
+        return True
+
     # Updated callback to update only the pressed button and attach new last_attack timestamp
     def create_callback(self, member):
         async def callback(interaction):
             try:
-                now = datetime.datetime.now(datetime.timezone.utc)
+                if not await self.handle_button_click(interaction, "member", member):
+                    return
+                    
                 await interaction.response.defer()
+                now = datetime.datetime.now(datetime.timezone.utc)
 
                 # Find and update the member entry
                 for member_entry in self.members:
@@ -385,8 +404,11 @@ class WarView(ui.View):
     def create_colony_callback(self, ident):
         async def callback(interaction):
             try:
-                now = datetime.datetime.now(datetime.timezone.utc)
+                if not await self.handle_button_click(interaction, "colony", ident):
+                    return
+                    
                 await interaction.response.defer()
+                now = datetime.datetime.now(datetime.timezone.utc)
 
                 # Find and update the colony entry
                 for colony in self.colonies:
@@ -457,34 +479,49 @@ class WarView(ui.View):
                 time_since_update = (now - self.last_timer_update).total_seconds()
                 should_update_timers = time_since_update >= self.update_interval
 
-                # Clean up old notification keys with better error handling
+                # Clean up old notification keys with better validation
                 try:
                     valid_keys = set()
                     for key in self.notified_respawns:
                         try:
                             parts = key.split(':')
                             if len(parts) != 3:
+                                print(f"Invalid key format: {key}")
                                 continue
-                            
-                            # Try to parse timestamp, skip if invalid
+                                
                             try:
-                                # Ensure timestamp is a valid ISO format
-                                if not isinstance(parts[2], str) or not parts[2].strip():
+                                # Ensure the timestamp part is a valid ISO format
+                                timestamp_str = parts[2].strip()
+                                if not timestamp_str or not isinstance(timestamp_str, str):
+                                    print(f"Invalid timestamp in key: {key}")
                                     continue
-                                timestamp = datetime.datetime.fromisoformat(parts[2])
+                                    
+                                # Try to parse the timestamp with error handling
+                                try:
+                                    timestamp = datetime.datetime.fromisoformat(timestamp_str)
+                                except ValueError:
+                                    print(f"Invalid timestamp format in key: {key}")
+                                    continue
+                                    
                                 if not timestamp.tzinfo:
                                     timestamp = timestamp.replace(tzinfo=datetime.timezone.utc)
                                 
+                                # Keep only keys less than 1 hour old
                                 if (now - timestamp) < datetime.timedelta(hours=1):
                                     valid_keys.add(key)
-                            except ValueError:
-                                print(f"Skipping invalid timestamp in key: {key}")
+                                else:
+                                    print(f"Expired key removed: {key}")
+                            except Exception as e:
+                                print(f"Error processing timestamp in key {key}: {e}")
                                 continue
-                            
-                        except (ValueError, IndexError) as e:
+                                
+                        except Exception as e:
                             print(f"Error processing notification key {key}: {e}")
                             continue
+                            
                     self.notified_respawns = valid_keys
+                    print(f"Valid notification keys after cleanup: {len(valid_keys)}")
+                    
                 except Exception as e:
                     print(f"Error cleaning notification keys: {e}")
                     self.notified_respawns = set()  # Reset if error
@@ -531,7 +568,6 @@ class WarView(ui.View):
                         if notify_key not in self.notified_respawns:
                             await self.channel.send(f"✨ **{member['name']}** has respawned!")
                             self.notified_respawns.add(notify_key)
-                            # Add to expired records set
                             expired_records_set.add(member["name"])
                         member["last"] = None
                         updated = True
@@ -542,16 +578,9 @@ class WarView(ui.View):
                         if notify_key not in self.notified_respawns:
                             await self.channel.send(f"✨ Colony at **SB{colony['starbase']} ({colony['x']},{colony['y']})** has respawned!")
                             self.notified_respawns.add(notify_key)
-                            # Add to expired records set
                             expired_records_set.add(colony["ident"])
                         colony["last"] = None
                         updated = True
-
-                # Fix timezone issue in notification cleanup
-                self.notified_respawns = {
-                    key for key in self.notified_respawns 
-                    if (now - datetime.datetime.fromisoformat(key.split(':')[2]).replace(tzinfo=datetime.timezone.utc)) < datetime.timedelta(hours=1)
-                }
 
                 # Delete expired records if we have any
                 if expired_records_set:
@@ -560,27 +589,11 @@ class WarView(ui.View):
                         expired_records = list(expired_records_set)
                         print(f"Deleting expired war attacks: {expired_records}")
                         result = await self.pool.execute(
-                            "DELETE FROM war_attacks WHERE guild_id=$1 AND member=ANY($2)",
+                            "DELETE FROM war_attacks WHERE guild_id=$1 AND member=ANY($2::text[])",
                             self.guild_id, expired_records
                         )
                         print(f"Delete result: {result}")
-                    except Exception as e:
-                        print(f"Error deleting expired records: {e}")
-
-                # Cleanup old notification keys (over 1 hour old)
-                self.notified_respawns = {
-                    key for key in self.notified_respawns 
-                    if now - datetime.datetime.fromisoformat(key.split(':')[2]) < datetime.timedelta(hours=1)
-                }
-
-                # Batch delete expired records
-                if expired_records:
-                    try:
-                        await self.pool.execute(
-                            "DELETE FROM war_attacks WHERE guild_id=$1 AND member=ANY($2)",
-                            self.guild_id, expired_records
-                        )
-                        expired_records = []  # Clear after successful deletion
+                        updated = True  # Force update after deletion
                     except Exception as e:
                         print(f"Error deleting expired records: {e}")
 
