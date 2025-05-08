@@ -448,19 +448,28 @@ class WarView(ui.View):
 
     async def start_countdown(self, message):
         import asyncio
+        
+        # Wait a short time for everything to initialize
+        await asyncio.sleep(1)
+        
         if not message or not message.channel:
             print("Invalid message or channel reference")
             return
             
-        self.channel = message.channel
-        self.message = message  # Store message reference
-        
-        # Try to send initialization message with better error handling
         try:
-            if not await self.send_safe(self.channel, "✨ War tracker initialized - I will notify when targets respawn!"):
-                print("Failed to send initialization message, but continuing countdown")
+            self.message = message
+            self.channel = message.channel
+            
+            # Ensure guild is properly loaded
+            if not self.channel.guild:
+                await asyncio.sleep(2)  # Wait a bit longer for guild to be available
+                
+            if self.channel.guild:
+                await self.send_safe(self.channel, "✨ War tracker initialized - I will notify when targets respawn!")
+            else:
+                print("Guild still not available after waiting")
         except Exception as e:
-            print(f"Error sending initialization message: {e}")
+            print(f"Error setting up countdown: {e}")
             
         error_count = 0
         last_cleanup = datetime.datetime.now(datetime.timezone.utc)
