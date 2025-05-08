@@ -3,7 +3,7 @@
 import datetime
 import math
 import discord  # Add explicit discord import
-from discord import ButtonStyle, ui, errors
+from discord import ButtonStyle, ui
 
 # Import helper to fetch the current war state
 from .db import get_current_war
@@ -37,8 +37,6 @@ class WarView(ui.View):
         self.notified_respawns = set()  # Add this to track notifications
         self.last_timer_update = datetime.datetime.now(datetime.timezone.utc)
         self.update_interval = 300  # 5 minutes in seconds
-        self.last_button_press = {}  # Add rate limiting tracking
-        self.button_cooldown = 1.0  # 1 second cooldown between clicks
 
     async def send_safe(self, channel, message):
         """Helper method to safely send messages with permission checking"""
@@ -332,28 +330,12 @@ class WarView(ui.View):
 
         return True
 
-    async def handle_button_click(self, interaction, entry_type: str, identifier: str, last_attack: datetime.datetime = None):
-        """Centralized button click handler with rate limiting"""
-        now = datetime.datetime.now(datetime.timezone.utc)
-        
-        # Rate limiting check
-        last_press = self.last_button_press.get(identifier)
-        if last_press and (now - last_press).total_seconds() < self.button_cooldown:
-            await interaction.response.send_message("Please wait a moment between clicks.", ephemeral=True)
-            return False
-            
-        self.last_button_press[identifier] = now
-        return True
-
     # Updated callback to update only the pressed button and attach new last_attack timestamp
     def create_callback(self, member):
         async def callback(interaction):
             try:
-                if not await self.handle_button_click(interaction, "member", member):
-                    return
-                    
-                await interaction.response.defer()
                 now = datetime.datetime.now(datetime.timezone.utc)
+                await interaction.response.defer()
 
                 # Find and update the member entry
                 for member_entry in self.members:
@@ -404,11 +386,8 @@ class WarView(ui.View):
     def create_colony_callback(self, ident):
         async def callback(interaction):
             try:
-                if not await self.handle_button_click(interaction, "colony", ident):
-                    return
-                    
-                await interaction.response.defer()
                 now = datetime.datetime.now(datetime.timezone.utc)
+                await interaction.response.defer()
 
                 # Find and update the colony entry
                 for colony in self.colonies:
