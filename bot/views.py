@@ -40,7 +40,15 @@ class WarView(ui.View):
 
     async def send_safe(self, channel, message):
         """Helper method to safely send messages with permission checking"""
+        if not channel:
+            print("Channel is None")
+            return False
+            
         try:
+            if not channel.guild:
+                print(f"No guild available for channel {channel.id}")
+                return False
+                
             # Check if bot has required permissions
             permissions = channel.permissions_for(channel.guild.me)
             if not permissions.send_messages:
@@ -49,6 +57,9 @@ class WarView(ui.View):
                 
             await channel.send(message)
             return True
+        except AttributeError as e:
+            print(f"Missing attribute when sending message: {e}")
+            return False
         except discord.Forbidden:
             print(f"Missing permissions to send messages in channel {channel.id}")
             return False
@@ -437,13 +448,20 @@ class WarView(ui.View):
 
     async def start_countdown(self, message):
         import asyncio
+        if not message or not message.channel:
+            print("Invalid message or channel reference")
+            return
+            
         self.channel = message.channel
         self.message = message  # Store message reference
-        try:
-            await self.send_safe(self.channel, "✨ War tracker initialized - I will notify when targets respawn!")
-        except:
-            print("Failed to send initialization message")
         
+        # Try to send initialization message with better error handling
+        try:
+            if not await self.send_safe(self.channel, "✨ War tracker initialized - I will notify when targets respawn!"):
+                print("Failed to send initialization message, but continuing countdown")
+        except Exception as e:
+            print(f"Error sending initialization message: {e}")
+            
         error_count = 0
         last_cleanup = datetime.datetime.now(datetime.timezone.utc)
         cleanup_interval = 3600  # Clean notifications once per hour
