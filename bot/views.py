@@ -440,70 +440,39 @@ class WarView(ui.View):
         self.channel = message.channel
         self.message = message  # Store message reference
         try:
-            await self.channel.send("✨ War tracker initialized - I will notify when targets respawn!")
+            await self.send_safe(self.channel, "✨ War tracker initialized - I will notify when targets respawn!")
         except:
             print("Failed to send initialization message")
         
-        expired_records = []  # Track expired records
-        error_count = 0  # Track consecutive errors
+        error_count = 0
+        last_cleanup = datetime.datetime.now(datetime.timezone.utc)
+        cleanup_interval = 3600  # Clean notifications once per hour
         
         while not self.is_finished():
             try:
                 now = datetime.datetime.now(datetime.timezone.utc)
                 updated = False
-                force_update = False  # Flag for forced updates on cooldown expiry
-                expired_records_set = set()  # Track expired records with a set
+                force_update = False
+                expired_records_set = set()
 
-                # Only process timer updates every 5 minutes
                 time_since_update = (now - self.last_timer_update).total_seconds()
                 should_update_timers = time_since_update >= self.update_interval
-
-                # Clean up old notification keys with better validation
-                try:
-                    valid_keys = set()
-                    for key in self.notified_respawns:
-                        try:
-                            parts = key.split(':')
-                            if len(parts) != 3:
-                                print(f"Invalid key format: {key}")
-                                continue
-                                
-                            try:
-                                # Ensure the timestamp part is a valid ISO format
-                                timestamp_str = parts[2].strip()
-                                if not timestamp_str or not isinstance(timestamp_str, str):
-                                    print(f"Invalid timestamp in key: {key}")
-                                    continue
-                                    
-                                # Try to parse the timestamp with error handling
-                                try:
-                                    timestamp = datetime.datetime.fromisoformat(timestamp_str)
-                                except ValueError:
-                                    print(f"Invalid timestamp format in key: {key}")
-                                    continue
-                                    
-                                if not timestamp.tzinfo:
-                                    timestamp = timestamp.replace(tzinfo=datetime.timezone.utc)
-                                
-                                # Keep only keys less than 1 hour old
-                                if (now - timestamp) < datetime.timedelta(hours=1):
-                                    valid_keys.add(key)
-                                else:
-                                    print(f"Expired key removed: {key}")
-                            except Exception as e:
-                                print(f"Error processing timestamp in key {key}: {e}")
-                                continue
-                                
-                        except Exception as e:
-                            print(f"Error processing notification key {key}: {e}")
-                            continue
-                            
-                    self.notified_respawns = valid_keys
-                    print(f"Valid notification keys after cleanup: {len(valid_keys)}")
-                    
-                except Exception as e:
-                    print(f"Error cleaning notification keys: {e}")
-                    self.notified_respawns = set()  # Reset if error
+                
+                # Only clean notifications hourly or when forced
+                time_since_cleanup = (now - last_cleanup).total_seconds()
+                if time_since_cleanup >= cleanup_interval:
+                    try:
+                        valid_keys = {
+                            key for key in self.notified_respawns
+                            if len(key.split(':')) == 3 
+                            and (now - datetime.datetime.fromisoformat(key.split(':')[2].strip())
+                                .replace(tzinfo=datetime.timezone.utc)) < datetime.timedelta(hours=1)
+                        }
+                        self.notified_respawns = valid_keys
+                        last_cleanup = now
+                    except Exception as e:
+                        print(f"Error cleaning notification keys: {e}")
+                        self.notified_respawns = set()
 
                 # Handle timer updates
                 for item in self.children:
