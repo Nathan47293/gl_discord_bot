@@ -457,7 +457,7 @@ class WarView(ui.View):
                 time_since_update = (now - self.last_timer_update).total_seconds()
                 should_update_timers = time_since_update >= self.update_interval
 
-                # Clean up old notification keys first
+                # Clean up old notification keys with better error handling
                 try:
                     valid_keys = set()
                     for key in self.notified_respawns:
@@ -465,10 +465,24 @@ class WarView(ui.View):
                             parts = key.split(':')
                             if len(parts) != 3:
                                 continue
-                            timestamp = datetime.datetime.fromisoformat(parts[2])
-                            if (now - timestamp) < datetime.timedelta(hours=1):
-                                valid_keys.add(key)
-                        except (ValueError, IndexError):
+                            
+                            # Try to parse timestamp, skip if invalid
+                            try:
+                                # Ensure timestamp is a valid ISO format
+                                if not isinstance(parts[2], str) or not parts[2].strip():
+                                    continue
+                                timestamp = datetime.datetime.fromisoformat(parts[2])
+                                if not timestamp.tzinfo:
+                                    timestamp = timestamp.replace(tzinfo=datetime.timezone.utc)
+                                
+                                if (now - timestamp) < datetime.timedelta(hours=1):
+                                    valid_keys.add(key)
+                            except ValueError:
+                                print(f"Skipping invalid timestamp in key: {key}")
+                                continue
+                            
+                        except (ValueError, IndexError) as e:
+                            print(f"Error processing notification key {key}: {e}")
                             continue
                     self.notified_respawns = valid_keys
                 except Exception as e:
@@ -575,6 +589,12 @@ class WarView(ui.View):
                     try:
                         # Check if message still exists and is accessible
                         try:
+                            # Only try to edit if we have the right permissions
+                            permissions = self.channel.permissions_for(self.channel.guild.me)
+                            if not permissions.view_channel or not permissions.send_messages:
+                                print("Missing required permissions")
+                                return
+                                
                             # Fetch fresh message object
                             message = await self.channel.fetch_message(message.id)
                             self.message = message  # Update reference
@@ -586,10 +606,15 @@ class WarView(ui.View):
                         except discord.Forbidden:
                             print("Lost permissions to edit message")
                             return
+                        except discord.HTTPException as e:
+                            print(f"HTTP error updating message: {e}")
+                            if "Invalid Webhook Token" in str(e):
+                                print("Invalid webhook token, message may be too old")
+                                return
                             
                         # Update other views with error handling
                         if hasattr(self, 'parent_cog'):
-                            for guild_id, view in self.parent_cog.active_views.items():
+                            for guild_id, view in list(self.parent_cog.active_views.items()):
                                 if view != self and view.message:
                                     try:
                                         # Fetch fresh message for other views too
@@ -602,6 +627,7 @@ class WarView(ui.View):
                                         self.parent_cog.active_views.pop(guild_id, None)
                                     except Exception as e:
                                         print(f"Error updating other view: {e}")
+                                        continue
 
                     except Exception as e:
                         error_count += 1
@@ -612,13 +638,14 @@ class WarView(ui.View):
                             print("Too many consecutive errors, stopping countdown")
                             return
 
+                await asyncio.sleep(30)  # Check every 30 seconds
+
             except Exception as e:
                 print(f"Error in countdown loop: {e}")
                 if hasattr(e, '__traceback__'):
                     import traceback
                     traceback.print_tb(e.__traceback__)
-            
-            await asyncio.sleep(30)  # Check every 30 seconds, but only update UI every 5 minutes
+                await asyncio.sleep(5)  # Short delay on error before retrying
 
     # Fix mode switch callbacks
     async def switch_to_colony(self, interaction):
