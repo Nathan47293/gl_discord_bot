@@ -140,29 +140,13 @@ class WarView(ui.View):
     async def rebuild_view(self):
         """Only rebuild if references are valid"""
         try:
-            # First refresh references
-            if not await self.refresh_references():
-                print("Cannot rebuild - invalid references")
-                return False
-
-            # Validate message and channel
-            if not self.message or not self.channel:
-                print("Warning: Message or channel is None, skipping rebuild_view.")
-                return False
-
-            # Ensure the message still exists
-            try:
-                self.message = await self.channel.fetch_message(self.message.id)
-            except (discord.NotFound, discord.Forbidden):
-                print("Message no longer exists or is inaccessible.")
-                return False
-
-            if self._countdown_task and self._countdown_task.done() and self.bot:
-                # Restart countdown if it stopped and we have bot reference
-                self._countdown_task = self.bot.loop.create_task(
-                    self.start_countdown(self.message)
-                )
-                
+            # Only validate references if countdown has started
+            if self._countdown_task and self._countdown_task.is_running():
+                if not await self.refresh_references():
+                    print("Cannot rebuild - invalid references")
+                    return False
+            
+            # For initial build, skip reference checks
             now = datetime.datetime.now(datetime.timezone.utc)
             cache = self.members if self.mode=="main" else self.colonies
 
@@ -452,10 +436,16 @@ class WarView(ui.View):
     async def start_countdown(self, message):
         """Initialize countdown with proper reference storage"""
         import asyncio
+        
+        # Store references before starting countdown
+        self.message = message
         self.channel = message.channel
-        self.message = message  # Store message reference
         self.message_id = message.id
         self.channel_id = message.channel.id
+
+        # Do an initial rebuild now that we have references
+        await self.rebuild_view()
+        
         try:
             await self.channel.send("✨ War tracker initialized - I will notify when targets respawn!")
         except:
