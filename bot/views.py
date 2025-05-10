@@ -38,10 +38,10 @@ class WarView(ui.View):
         self.update_interval = 300  # 5 minutes in seconds
         self.message = None
         self.channel = None
-        self.message_id = None
         self.channel_id = None
+        self.message_id = None
+        self.expired_records = []
         self.error_count = 0
-        self.max_errors = 3
 
     async def send_safe(self, channel, message):
         """Helper method to safely send messages with permission checking"""
@@ -138,12 +138,13 @@ class WarView(ui.View):
             print(f"Error populating WarView: {e}")
 
     async def rebuild_view(self):
-        """Only rebuild if we have valid references"""
-        if not await self.refresh_references():
-            print("Cannot rebuild - missing references")
-            return False
-
+        """Only rebuild if references are valid"""
         try:
+            # First refresh references
+            if not await self.refresh_references():
+                print("Cannot rebuild - invalid references")
+                return False
+
             # Validate message and channel
             if not self.message or not self.channel:
                 print("Warning: Message or channel is None, skipping rebuild_view.")
@@ -451,24 +452,24 @@ class WarView(ui.View):
     async def start_countdown(self, message):
         """Initialize countdown with proper reference storage"""
         import asyncio
-        
-        # Store both objects and IDs
-        self.message = message
         self.channel = message.channel
+        self.message = message  # Store message reference
         self.message_id = message.id
         self.channel_id = message.channel.id
-        
         try:
             await self.channel.send("✨ War tracker initialized - I will notify when targets respawn!")
         except:
             print("Failed to send initialization message")
         
+        expired_records = []  # Track expired records
+        error_count = 0  # Track consecutive errors
+        
         while not self.is_finished():
             try:
-                # First refresh references
+                # Refresh references after potential session resume
                 if not await self.refresh_references():
                     self.error_count += 1
-                    if self.error_count >= self.max_errors:
+                    if self.error_count >= 3:
                         print("Lost critical references, stopping countdown")
                         return
                     await asyncio.sleep(5)
@@ -647,9 +648,9 @@ class WarView(ui.View):
             await asyncio.sleep(30)  # Check every 30 seconds, but only update UI every 5 minutes
 
     async def refresh_references(self):
-        """Safely refresh channel and message references"""
+        """Refresh channel and message references after session resume"""
         try:
-            if not self.channel_id or not self.message_id or not self.bot:
+            if not self.bot or not self.channel_id:
                 return False
 
             # Get fresh channel reference
@@ -659,16 +660,17 @@ class WarView(ui.View):
                     channel = await self.bot.fetch_channel(self.channel_id)
                 except:
                     return False
+            
+            self.channel = channel
+            
+            # Get fresh message reference if we have an ID
+            if self.message_id:
+                try:
+                    self.message = await channel.fetch_message(self.message_id)
+                except:
+                    return False
 
-            # Get fresh message reference
-            try:
-                message = await channel.fetch_message(self.message_id)
-                self.channel = channel
-                self.message = message
-                return True
-            except:
-                return False
-
+            return True
         except Exception as e:
             print(f"Error refreshing references: {e}")
             return False
