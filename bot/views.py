@@ -141,12 +141,17 @@ class WarView(ui.View):
         """Only rebuild if references are valid"""
         try:
             # Only validate references if countdown has started
-            if self._countdown_task and self._countdown_task.is_running():
-                if not await self.refresh_references():
-                    print("Cannot rebuild - invalid references")
-                    return False
+            if self._countdown_task:
+                # Check task status safely
+                try:
+                    if not self._countdown_task.done() and not self._countdown_task.cancelled():
+                        if not await self.refresh_references():
+                            print("Cannot rebuild - invalid references")
+                            return False
+                except Exception as e:
+                    print(f"Error checking task status: {e}")
             
-            # For initial build, skip reference checks
+            # For initial build or task error, continue with build
             now = datetime.datetime.now(datetime.timezone.utc)
             cache = self.members if self.mode=="main" else self.colonies
 
