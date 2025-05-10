@@ -2,7 +2,6 @@
 
 import datetime
 import math
-import discord  # Add explicit discord import
 from discord import ButtonStyle, ui
 
 # Import helper to fetch the current war state
@@ -37,18 +36,16 @@ class WarView(ui.View):
         self.notified_respawns = set()  # Add this to track notifications
         self.last_timer_update = datetime.datetime.now(datetime.timezone.utc)
         self.update_interval = 300  # 5 minutes in seconds
+        self.message = None
+        self.channel = None
+        self.message_id = None
+        self.channel_id = None
+        self.error_count = 0
+        self.max_errors = 3
 
     async def send_safe(self, channel, message):
         """Helper method to safely send messages with permission checking"""
-        if not channel:
-            print("Channel is None")
-            return False
-            
         try:
-            if not channel.guild:
-                print(f"No guild available for channel {channel.id}")
-                return False
-                
             # Check if bot has required permissions
             permissions = channel.permissions_for(channel.guild.me)
             if not permissions.send_messages:
@@ -57,9 +54,6 @@ class WarView(ui.View):
                 
             await channel.send(message)
             return True
-        except AttributeError as e:
-            print(f"Missing attribute when sending message: {e}")
-            return False
         except discord.Forbidden:
             print(f"Missing permissions to send messages in channel {channel.id}")
             return False
@@ -144,15 +138,23 @@ class WarView(ui.View):
             print(f"Error populating WarView: {e}")
 
     async def rebuild_view(self):
+        """Only rebuild if we have valid references"""
+        if not await self.refresh_references():
+            print("Cannot rebuild - missing references")
+            return False
+
         try:
-            # First check if message is still valid
-            if hasattr(self, 'message') and self.message:
-                try:
-                    # Try to fetch the message to ensure it exists
-                    self.message = await self.channel.fetch_message(self.message.id)
-                except (discord.NotFound, discord.Forbidden):
-                    # Message no longer exists or accessible
-                    return False
+            # Validate message and channel
+            if not self.message or not self.channel:
+                print("Warning: Message or channel is None, skipping rebuild_view.")
+                return False
+
+            # Ensure the message still exists
+            try:
+                self.message = await self.channel.fetch_message(self.message.id)
+            except (discord.NotFound, discord.Forbidden):
+                print("Message no longer exists or is inaccessible.")
+                return False
 
             if self._countdown_task and self._countdown_task.done() and self.bot:
                 # Restart countdown if it stopped and we have bot reference
@@ -447,44 +449,57 @@ class WarView(ui.View):
         return callback
 
     async def start_countdown(self, message):
+        """Initialize countdown with proper reference storage"""
         import asyncio
         
-        if not message or not message.channel:
-            print("Invalid message or channel reference")
-            return
-            
+        # Store both objects and IDs
+        self.message = message
         self.channel = message.channel
-        self.message = message  # Store message reference
+        self.message_id = message.id
+        self.channel_id = message.channel.id
         
-        error_count = 0
-        last_cleanup = datetime.datetime.now(datetime.timezone.utc)
-        cleanup_interval = 3600  # Clean notifications once per hour
+        try:
+            await self.channel.send("✨ War tracker initialized - I will notify when targets respawn!")
+        except:
+            print("Failed to send initialization message")
         
         while not self.is_finished():
             try:
+                # First refresh references
+                if not await self.refresh_references():
+                    self.error_count += 1
+                    if self.error_count >= self.max_errors:
+                        print("Lost critical references, stopping countdown")
+                        return
+                    await asyncio.sleep(5)
+                    continue
+
                 now = datetime.datetime.now(datetime.timezone.utc)
                 updated = False
-                force_update = False
-                expired_records_set = set()
+                force_update = False  # Flag for forced updates on cooldown expiry
+                expired_records_set = set()  # Track expired records with a set
 
+                # Only process timer updates every 5 minutes
                 time_since_update = (now - self.last_timer_update).total_seconds()
                 should_update_timers = time_since_update >= self.update_interval
-                
-                # Only clean notifications hourly or when forced
-                time_since_cleanup = (now - last_cleanup).total_seconds()
-                if time_since_cleanup >= cleanup_interval:
-                    try:
-                        valid_keys = {
-                            key for key in self.notified_respawns
-                            if len(key.split(':')) == 3 
-                            and (now - datetime.datetime.fromisoformat(key.split(':')[2].strip())
-                                .replace(tzinfo=datetime.timezone.utc)) < datetime.timedelta(hours=1)
-                        }
-                        self.notified_respawns = valid_keys
-                        last_cleanup = now
-                    except Exception as e:
-                        print(f"Error cleaning notification keys: {e}")
-                        self.notified_respawns = set()
+
+                # Clean up old notification keys first
+                try:
+                    valid_keys = set()
+                    for key in self.notified_respawns:
+                        try:
+                            parts = key.split(':')
+                            if len(parts) != 3:
+                                continue
+                            timestamp = datetime.datetime.fromisoformat(parts[2])
+                            if (now - timestamp) < datetime.timedelta(hours=1):
+                                valid_keys.add(key)
+                        except (ValueError, IndexError):
+                            continue
+                    self.notified_respawns = valid_keys
+                except Exception as e:
+                    print(f"Error cleaning notification keys: {e}")
+                    self.notified_respawns = set()  # Reset if error
 
                 # Handle timer updates
                 for item in self.children:
@@ -528,6 +543,7 @@ class WarView(ui.View):
                         if notify_key not in self.notified_respawns:
                             await self.channel.send(f"✨ **{member['name']}** has respawned!")
                             self.notified_respawns.add(notify_key)
+                            # Add to expired records set
                             expired_records_set.add(member["name"])
                         member["last"] = None
                         updated = True
@@ -538,9 +554,16 @@ class WarView(ui.View):
                         if notify_key not in self.notified_respawns:
                             await self.channel.send(f"✨ Colony at **SB{colony['starbase']} ({colony['x']},{colony['y']})** has respawned!")
                             self.notified_respawns.add(notify_key)
+                            # Add to expired records set
                             expired_records_set.add(colony["ident"])
                         colony["last"] = None
                         updated = True
+
+                # Fix timezone issue in notification cleanup
+                self.notified_respawns = {
+                    key for key in self.notified_respawns 
+                    if (now - datetime.datetime.fromisoformat(key.split(':')[2]).replace(tzinfo=datetime.timezone.utc)) < datetime.timedelta(hours=1)
+                }
 
                 # Delete expired records if we have any
                 if expired_records_set:
@@ -549,11 +572,27 @@ class WarView(ui.View):
                         expired_records = list(expired_records_set)
                         print(f"Deleting expired war attacks: {expired_records}")
                         result = await self.pool.execute(
-                            "DELETE FROM war_attacks WHERE guild_id=$1 AND member=ANY($2::text[])",
+                            "DELETE FROM war_attacks WHERE guild_id=$1 AND member=ANY($2)",
                             self.guild_id, expired_records
                         )
                         print(f"Delete result: {result}")
-                        updated = True  # Force update after deletion
+                    except Exception as e:
+                        print(f"Error deleting expired records: {e}")
+
+                # Cleanup old notification keys (over 1 hour old)
+                self.notified_respawns = {
+                    key for key in self.notified_respawns 
+                    if now - datetime.datetime.fromisoformat(key.split(':')[2]) < datetime.timedelta(hours=1)
+                }
+
+                # Batch delete expired records
+                if expired_records:
+                    try:
+                        await self.pool.execute(
+                            "DELETE FROM war_attacks WHERE guild_id=$1 AND member=ANY($2)",
+                            self.guild_id, expired_records
+                        )
+                        expired_records = []  # Clear after successful deletion
                     except Exception as e:
                         print(f"Error deleting expired records: {e}")
 
@@ -562,12 +601,6 @@ class WarView(ui.View):
                     try:
                         # Check if message still exists and is accessible
                         try:
-                            # Only try to edit if we have the right permissions
-                            permissions = self.channel.permissions_for(self.channel.guild.me)
-                            if not permissions.view_channel or not permissions.send_messages:
-                                print("Missing required permissions")
-                                return
-                                
                             # Fetch fresh message object
                             message = await self.channel.fetch_message(message.id)
                             self.message = message  # Update reference
@@ -579,15 +612,10 @@ class WarView(ui.View):
                         except discord.Forbidden:
                             print("Lost permissions to edit message")
                             return
-                        except discord.HTTPException as e:
-                            print(f"HTTP error updating message: {e}")
-                            if "Invalid Webhook Token" in str(e):
-                                print("Invalid webhook token, message may be too old")
-                                return
                             
                         # Update other views with error handling
                         if hasattr(self, 'parent_cog'):
-                            for guild_id, view in list(self.parent_cog.active_views.items()):
+                            for guild_id, view in self.parent_cog.active_views.items():
                                 if view != self and view.message:
                                     try:
                                         # Fetch fresh message for other views too
@@ -600,7 +628,6 @@ class WarView(ui.View):
                                         self.parent_cog.active_views.pop(guild_id, None)
                                     except Exception as e:
                                         print(f"Error updating other view: {e}")
-                                        continue
 
                     except Exception as e:
                         error_count += 1
@@ -611,14 +638,40 @@ class WarView(ui.View):
                             print("Too many consecutive errors, stopping countdown")
                             return
 
-                await asyncio.sleep(30)  # Check every 30 seconds
-
             except Exception as e:
                 print(f"Error in countdown loop: {e}")
                 if hasattr(e, '__traceback__'):
                     import traceback
                     traceback.print_tb(e.__traceback__)
-                await asyncio.sleep(5)  # Short delay on error before retrying
+            
+            await asyncio.sleep(30)  # Check every 30 seconds, but only update UI every 5 minutes
+
+    async def refresh_references(self):
+        """Safely refresh channel and message references"""
+        try:
+            if not self.channel_id or not self.message_id or not self.bot:
+                return False
+
+            # Get fresh channel reference
+            channel = self.bot.get_channel(self.channel_id)
+            if not channel:
+                try:
+                    channel = await self.bot.fetch_channel(self.channel_id)
+                except:
+                    return False
+
+            # Get fresh message reference
+            try:
+                message = await channel.fetch_message(self.message_id)
+                self.channel = channel
+                self.message = message
+                return True
+            except:
+                return False
+
+        except Exception as e:
+            print(f"Error refreshing references: {e}")
+            return False
 
     # Fix mode switch callbacks
     async def switch_to_colony(self, interaction):
