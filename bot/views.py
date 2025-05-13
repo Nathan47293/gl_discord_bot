@@ -33,7 +33,7 @@ class WarView(ui.View):
         self.mode = "main"      # "main" for members, "colony" for colonies
         self.colonies = []      # cache for colony mode
         self.members = []       # cache for main mode
-        self.notified_respawns = set()  # Store full respawn keys
+        self.notified_respawns = {}  # Change to dict to store timestamps directly
         self.notification_timestamps = {}  # Store timestamps separately
         self.last_timer_update = datetime.datetime.now(datetime.timezone.utc)
         self.update_interval = 300  # 5 minutes in seconds
@@ -449,8 +449,8 @@ class WarView(ui.View):
         self.message_id = message.id
         self.channel_id = message.channel.id
 
-        # Do an initial rebuild now that we have references
-        await self.rebuild_view()
+        # Reset notification tracking
+        self.notified_respawns = {}
         
         try:
             await self.channel.send("✨ War tracker initialized - I will notify when targets respawn!")
@@ -550,8 +550,8 @@ class WarView(ui.View):
                         notify_key = f"member:{member['name']}"
                         if notify_key not in self.notified_respawns:
                             await self.channel.send(f"✨ **{member['name']}** has respawned!")
-                            self.notified_respawns.add(notify_key)
-                            self.notification_timestamps[notify_key] = now
+                            self.notified_respawns[notify_key] = now
+                            expired_records_set.add(member["name"])
                         member["last"] = None
                         updated = True
 
@@ -560,8 +560,8 @@ class WarView(ui.View):
                         notify_key = f"colony:{colony['ident']}"
                         if notify_key not in self.notified_respawns:
                             await self.channel.send(f"✨ Colony at **SB{colony['starbase']} ({colony['x']},{colony['y']})** has respawned!")
-                            self.notified_respawns.add(notify_key)
-                            self.notification_timestamps[notify_key] = now
+                            self.notified_respawns[notify_key] = now
+                            expired_records_set.add(colony["ident"])
                         colony["last"] = None
                         updated = True
 
