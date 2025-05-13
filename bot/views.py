@@ -33,7 +33,8 @@ class WarView(ui.View):
         self.mode = "main"      # "main" for members, "colony" for colonies
         self.colonies = []      # cache for colony mode
         self.members = []       # cache for main mode
-        self.notified_respawns = {}  # Change to dict to store timestamps directly
+        self.notified_respawns = dict()  # Store as dict with timestamps
+        self.notified_keys = set()  # Track just the keys for fast lookup
         self.notification_timestamps = {}  # Store timestamps separately
         self.last_timer_update = datetime.datetime.now(datetime.timezone.utc)
         self.update_interval = 300  # 5 minutes in seconds
@@ -450,7 +451,8 @@ class WarView(ui.View):
         self.channel_id = message.channel.id
 
         # Reset notification tracking
-        self.notified_respawns = {}
+        self.notified_respawns.clear()
+        self.notified_keys.clear()
         
         try:
             await self.channel.send("✨ War tracker initialized - I will notify when targets respawn!")
@@ -464,14 +466,14 @@ class WarView(ui.View):
             try:
                 now = datetime.datetime.now(datetime.timezone.utc)
                 
-                # Clean up old notifications first - using timestamps
-                old_keys = {
-                    key for key, timestamp in self.notification_timestamps.items()
+                # Clean up old notifications
+                expired = [
+                    key for key, timestamp in self.notified_respawns.items()
                     if (now - timestamp).total_seconds() >= 3600  # 1 hour
-                }
-                for key in old_keys:
-                    self.notified_respawns.discard(key)
-                    self.notification_timestamps.pop(key, None)
+                ]
+                for key in expired:
+                    self.notified_respawns.pop(key, None)
+                    self.notified_keys.discard(key)
 
                 # Refresh references after potential session resume
                 if not await self.refresh_references():
@@ -548,9 +550,10 @@ class WarView(ui.View):
                 for member in self.members:
                     if member["last"] and (now - member["last"]).total_seconds() >= self.cd * 3600:
                         notify_key = f"member:{member['name']}"
-                        if notify_key not in self.notified_respawns:
+                        if notify_key not in self.notified_keys:
                             await self.channel.send(f"✨ **{member['name']}** has respawned!")
                             self.notified_respawns[notify_key] = now
+                            self.notified_keys.add(notify_key)
                             expired_records_set.add(member["name"])
                         member["last"] = None
                         updated = True
@@ -558,9 +561,10 @@ class WarView(ui.View):
                 for colony in self.colonies:
                     if colony["last"] and (now - colony["last"]).total_seconds() >= self.cd * 3600:
                         notify_key = f"colony:{colony['ident']}"
-                        if notify_key not in self.notified_respawns:
+                        if notify_key not in self.notified_keys:
                             await self.channel.send(f"✨ Colony at **SB{colony['starbase']} ({colony['x']},{colony['y']})** has respawned!")
                             self.notified_respawns[notify_key] = now
+                            self.notified_keys.add(notify_key)
                             expired_records_set.add(colony["ident"])
                         colony["last"] = None
                         updated = True
