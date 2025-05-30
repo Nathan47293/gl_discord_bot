@@ -40,8 +40,20 @@ class WarCog(commands.Cog):
         async with self.bot.pool.acquire() as conn:
             A = await conn.fetchval("SELECT COUNT(*) FROM members WHERE alliance=$1", own)
             E = await conn.fetchval("SELECT COUNT(*) FROM members WHERE alliance=$1", target)
-        ratio_enemy = max(E / A, 1)
-        ratio_you   = max(A / E, 1)
+            
+            # Check if target alliance has any members
+            if E == 0:
+                raise ValueError(f"Alliance {target} has no members.")
+            if A == 0:
+                raise ValueError(f"Alliance {own} has no members.")
+
+        ratio_enemy = E / A  # More enemies = longer cooldown
+        ratio_you = A / E    # More friendlies = longer cooldown
+        
+        # Ensure ratios are at least 1
+        ratio_enemy = max(ratio_enemy, 1)
+        ratio_you = max(ratio_you, 1)
+        
         T_enemy = round(4 * ratio_enemy)  # Back to 4 hours
         T_you   = round(4 * ratio_you)
         wp_map = {1:100,2:200,3:300,4:400,5:600,6:1000,7:1500,8:2000,9:2500}
@@ -114,8 +126,15 @@ class WarCog(commands.Cog):
         # Defer the response to allow extra processing time.
         await inter.response.defer()
 
-        embed, _ = await self.get_war_embed_and_view(str(inter.guild_id), own, target, full_view=False)
-        await inter.followup.send(embed=embed)
+        try:
+            embed, _ = await self.get_war_embed_and_view(str(inter.guild_id), own, target, full_view=False)
+            await inter.followup.send(embed=embed)
+
+        except ValueError as e:
+            await inter.followup.send(f"❌ Error: {str(e)}", ephemeral=True)
+        except Exception as e:
+            print(f"Error in attack command: {e}")
+            await inter.followup.send("❌ An error occurred", ephemeral=True)
 
     @app_commands.command(
         name="war",
